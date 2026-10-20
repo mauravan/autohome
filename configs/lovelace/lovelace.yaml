@@ -1,0 +1,302 @@
+# Lovelace Dashboard Configuration (YAML mode)
+# File: configs/lovelace/lovelace.yaml
+# Deploy to HA via: Settings → Dashboards → ⋮ → Resources → Use YAML mode
+
+title: "Autohome"
+views:
+  - title: "Overview"
+    icon: "mdi:home"
+    path: "overview"
+    badges: []
+    cards:
+      - type: "vertical-stack"
+        cards:
+          - type: "horizontal-stack"
+            cards:
+              - type: "glance"
+                title: "Top Floor"
+                entities:
+                  - entity: sensor.top_floor_co2
+                    name: "CO₂"
+                    icon: "mdi:molecule-co2"
+                  - entity: sensor.top_floor_temperature
+                    name: "Temp"
+                    icon: "mdi:thermometer"
+                  - entity: sensor.top_floor_humidity
+                    name: "Humidity"
+                    icon: "mdi:water-percent"
+              - type: "glance"
+                title: "Mid Floor"
+                entities:
+                  - entity: sensor.mid_floor_co2
+                    name: "CO₂"
+                    icon: "mdi:molecule-co2"
+                  - entity: sensor.mid_floor_temperature
+                    name: "Temp"
+                    icon: "mdi:thermometer"
+                  - entity: sensor.mid_floor_humidity
+                    name: "Humidity"
+                    icon: "mdi:water-percent"
+              - type: "glance"
+                title: "Bottom Floor"
+                entities:
+                  - entity: sensor.bottom_floor_co2
+                    name: "CO₂"
+                    icon: "mdi:molecule-co2"
+                  - entity: sensor.bottom_floor_temperature
+                    name: "Temp"
+                    icon: "mdi:thermometer"
+                  - entity: sensor.bottom_floor_humidity
+                    name: "Humidity"
+                    icon: "mdi:water-percent"
+
+          - type: "horizontal-stack"
+            cards:
+              - type: "entities"
+                title: "Velux Roof Windows"
+                entities:
+                  - entity: cover.top_floor_velux_window
+                    name: "Top Floor"
+                  - entity: cover.mid_floor_velux_window
+                    name: "Mid Floor"
+                  - entity: cover.bottom_floor_velux_window
+                    name: "Bottom Floor"
+              - type: "entities"
+                title: "Somfy Blinds"
+                entities:
+                  - entity: cover.top_floor_blind
+                    name: "Top Floor"
+                  - entity: cover.mid_floor_blind
+                    name: "Mid Floor"
+                  - entity: cover.bottom_floor_blind
+                    name: "Bottom Floor"
+
+          - type: "horizontal-stack"
+            cards:
+              - type: "entity"
+                entity: sensor.top_floor_co2
+                name: "Top Floor CO₂"
+                icon: "mdi:molecule-co2"
+                graph: "line"
+                detail: 2
+                hours_to_show: 24
+              - type: "entity"
+                entity: sensor.mid_floor_co2
+                name: "Mid Floor CO₂"
+                icon: "mdi:molecule-co2"
+                graph: "line"
+                detail: 2
+                hours_to_show: 24
+              - type: "entity"
+                entity: sensor.bottom_floor_co2
+                name: "Bottom Floor CO₂"
+                icon: "mdi:molecule-co2"
+                graph: "line"
+                detail: 2
+                hours_to_show: 24
+
+  - title: "Lighting"
+    icon: "mdi:lightbulb-group"
+    path: "lighting"
+    cards: !include lighting_cards.yaml
+
+  - title: "Covers"
+    icon: "mdi:window-open-variant"
+    path: "covers"
+    cards: !include cover_cards.yaml
+
+  - title: "Climate"
+    icon: "mdi:thermometer"
+    path: "climate"
+    cards:
+      - type: "vertical-stack"
+        cards:
+          - type: "horizontal-stack"
+            cards:
+              - type: "thermostat"
+                entity: climate.top_floor
+                name: "Top Floor"
+              - type: "thermostat"
+                entity: climate.mid_floor
+                name: "Mid Floor"
+              - type: "thermostat"
+                entity: climate.bottom_floor
+                name: "Bottom Floor"
+
+          - type: "horizontal-stack"
+            cards:
+              - type: "sensor"
+                entity: sensor.top_floor_temperature
+                name: "Top Floor Temp"
+                graph: "line"
+                detail: 2
+                hours_to_show: 24
+              - type: "sensor"
+                entity: sensor.mid_floor_temperature
+                name: "Mid Floor Temp"
+                graph: "line"
+                detail: 2
+                hours_to_show: 24
+              - type: "sensor"
+                entity: sensor.bottom_floor_temperature
+                name: "Bottom Floor Temp"
+                graph: "line"
+                detail: 2
+                hours_to_show: 24
+
+          - type: "horizontal-stack"
+            cards:
+              - type: "sensor"
+                entity: sensor.top_floor_humidity
+                name: "Top Floor Humidity"
+                graph: "line"
+                detail: 2
+                hours_to_show: 24
+              - type: "sensor"
+                entity: sensor.mid_floor_humidity
+                name: "Mid Floor Humidity"
+                graph: "line"
+                detail: 2
+                hours_to_show: 24
+              - type: "sensor"
+                entity: sensor.bottom_floor_humidity
+                name: "Bottom Floor Humidity"
+                graph: "line"
+                detail: 2
+                hours_to_show: 24
+
+  - title: "Air Quality"
+    icon: "mdi:air-filter"
+    path: "air_quality"
+    cards:
+      - type: "vertical-stack"
+        cards:
+          - type: "horizontal-stack"
+            cards:
+              - type: "gauge"
+                entity: sensor.top_floor_co2
+                name: "Top Floor CO₂"
+                min: 400
+                max: 2000
+                severity:
+                  green: 400
+                  yellow: 800
+                  red: 1000
+              - type: "gauge"
+                entity: sensor.mid_floor_co2
+                name: "Mid Floor CO₂"
+                min: 400
+                max: 2000
+                severity:
+                  green: 400
+                  yellow: 800
+                  red: 1000
+              - type: "gauge"
+                entity: sensor.bottom_floor_co2
+                name: "Bottom Floor CO₂"
+                min: 400
+                max: 2000
+                severity:
+                  green: 400
+                  yellow: 800
+                  red: 1000
+
+          - type: "horizontal-stack"
+            cards:
+              - type: "sensor"
+                entity: sensor.top_floor_co2
+                name: "Top Floor CO₂ (24h)"
+                graph: "line"
+                hours_to_show: 24
+              - type: "sensor"
+                entity: sensor.mid_floor_co2
+                name: "Mid Floor CO₂ (24h)"
+                graph: "line"
+                hours_to_show: 24
+              - type: "sensor"
+                entity: sensor.bottom_floor_co2
+                name: "Bottom Floor CO₂ (24h)"
+                graph: "line"
+                hours_to_show: 24
+
+  - title: "Security"
+    icon: "mdi:shield-lock"
+    path: "security"
+    cards:
+      - type: "entities"
+        title: "Doors & Windows"
+        entities:
+          - entity: binary_sensor.top_floor_bedroom_window
+            name: "Top Floor Bedroom Window"
+          - entity: binary_sensor.top_floor_skylight
+            name: "Top Floor Skylight"
+          - entity: binary_sensor.mid_floor_front_door
+            name: "Mid Floor Front Door"
+          - entity: binary_sensor.mid_floor_patio_door
+            name: "Mid Floor Patio Door"
+          - entity: binary_sensor.bottom_floor_garage_door
+            name: "Bottom Floor Garage Door"
+          - entity: binary_sensor.bottom_floor_utility_door
+            name: "Bottom Floor Utility Door"
+
+      - type: "entities"
+        title: "Motion Sensors"
+        entities:
+          - entity: binary_sensor.top_floor_motion
+            name: "Top Floor Motion"
+          - entity: binary_sensor.mid_floor_motion
+            name: "Mid Floor Motion"
+          - entity: binary_sensor.bottom_floor_motion
+            name: "Bottom Floor Motion"
+
+  - title: "System"
+    icon: "mdi:cog"
+    path: "system"
+    cards:
+      - type: "entities"
+        title: "Home Assistant"
+        entities:
+          - entity: sensor.ha_version
+            name: "HA Version"
+          - entity: sensor.supervisor_version
+            name: "Supervisor Version"
+          - entity: sensor.os_version
+            name: "OS Version"
+          - entity: sensor.disk_use_percent
+            name: "Disk Usage"
+          - entity: sensor.memory_use_percent
+            name: "Memory Usage"
+          - entity: sensor.cpu_temp
+            name: "CPU Temp"
+
+      - type: "entities"
+        title: "Network"
+        entities:
+          - entity: sensor.wifi_signal
+            name: "WiFi Signal"
+          - entity: sensor.ethernet_connected
+            name: "Ethernet"
+          - entity: sensor.last_boot
+            name: "Last Boot"
+
+      - type: "entities"
+        title: "MQTT"
+        entities:
+          - entity: sensor.mqtt_connected
+            name: "Broker Connected"
+          - entity: sensor.mqtt_messages_received
+            name: "Messages Received"
+          - entity: sensor.mqtt_messages_sent
+            name: "Messages Sent"
+
+      - type: "entities"
+        title: "Add-ons"
+        entities:
+          - entity: sensor.addon_mosquitto
+            name: "Mosquitto"
+          - entity: sensor.addon_samba
+            name: "Samba"
+          - entity: sensor.addon_file_editor
+            name: "File Editor"
+          - entity: sensor.addon_ssh
+            name: "SSH & Web Terminal"

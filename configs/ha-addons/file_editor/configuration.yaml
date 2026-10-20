@@ -1,0 +1,54 @@
+# File Editor Add-on Configuration
+# File: configs/ha-addons/file_editor/configuration.yaml
+
+# Directories to allow editing
+directories:
+  - "/config"
+  - "/addons"
+  - "/backup"
+  - "/share"
+  - "/ssl"
+
+# File patterns to allow (default: all)
+# allowlist:
+#   - "*.yaml"
+#   - "*.yml"
+#   - "*.json"
+#   - "*.py"
+#   - "*.js"
+#   - "*.ts"
+
+# Denylist patterns
+denylist:
+  - "*.key"
+  - "*.pem"
+  - "*.crt"
+  - "secrets.yaml"
+  - "*.db*"
+  - "*.sqlite*"
+
+# Editor settings
+editor:
+  theme: "vs-dark"
+  font_size: 14
+  tab_size: 2
+  word_wrap: "on"
+  minimap: true
+  line_numbers: "on"
+
+# Git integration (optional)
+git:
+  enabled: true
+  user_name: "autohome"
+  user_email: "autohome@local"
+
+# Terminal (embedded)
+terminal: true
+
+# Password protection (optional, uses HA auth if not set)
+# password: "!secret file_editor_password"
+
+# SSL (if exposing externally)
+ssl: false
+certfile: fullchain.pem
+keyfile: privkey.pem

@@ -1,0 +1,77 @@
+# Scenes Configuration
+# File: configs/scenes.yaml
+# Include in configuration.yaml: scene: !include scenes.yaml
+
+- id: good_morning
+  name: "Good Morning"
+  entities:
+    light.top_floor_bedroom_main: on
+    light.mid_floor_kitchen_main: on
+    cover.top_floor_bedroom_blind_left: open
+    cover.top_floor_bedroom_blind_right: open
+    cover.mid_floor_living_room_blind: open
+
+- id: movie_night
+  name: "Movie Night"
+  entities:
+    light.mid_floor_living_room_main:
+      state: on
+      brightness: 30
+      color_temp: 370
+    light.mid_floor_living_room_accent:
+      state: on
+      brightness: 10
+      rgb_color: [255, 50, 0]
+    cover.mid_floor_living_room_blind: closed
+
+- id: good_night
+  name: "Good Night"
+  entities:
+    light.all_lights: off
+    cover.all_blinds: closed
+    cover.all_roof_windows: closed
+
+- id: all_off
+  name: "All Off"
+  entities:
+    light.all_lights: off
+
+- id: all_blinds_open
+  name: "All Blinds Open"
+  entities:
+    cover.top_floor_bedroom_blind_left: open
+    cover.top_floor_bedroom_blind_right: open
+    cover.top_floor_skylight_blind: open
+    cover.mid_floor_living_room_blind: open
+    cover.mid_floor_kitchen_blind: open
+    cover.bottom_floor_office_blind: open
+    cover.bottom_floor_gym_blind: open
+
+- id: all_blinds_closed
+  name: "All Blinds Closed"
+  entities:
+    cover.top_floor_bedroom_blind_left: closed
+    cover.top_floor_bedroom_blind_right: closed
+    cover.top_floor_skylight_blind: closed
+    cover.mid_floor_living_room_blind: closed
+    cover.mid_floor_kitchen_blind: closed
+    cover.bottom_floor_office_blind: closed
+    cover.bottom_floor_gym_blind: closed
+
+- id: all_velux_open
+  name: "All Velux Open"
+  entities:
+    cover.top_floor_velux_bedroom: open
+    cover.top_floor_velux_bathroom: open
+    cover.mid_floor_velux_living: open
+    cover.mid_floor_velux_kitchen: open
+    cover.bottom_floor_velux_utility: open
+
+- id: all_velux_closed
+  name: "All Velux Closed"
+  entities:
+    cover.top_floor_velux_bedroom: closed
+    cover.top_floor_velux_bathroom: closed
+    cover.mid_floor_velux_living: closed
+    cover.mid_floor_velux_kitchen: closed
+    cover.bottom_floor_velux_utility: closed

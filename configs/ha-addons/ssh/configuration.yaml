@@ -1,0 +1,35 @@
+# SSH & Web Terminal Add-on Configuration
+# File: configs/ha-addons/ssh/configuration.yaml
+
+authorized_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... your-key-here"
+  # Add more keys as needed, one per line
+
+allow_agent: true
+allow_remote_forwarding: true
+
+# Password auth (disabled by default, key-only)
+password: ""
+
+# Port (default 22, but HAOS reserves 22 for host SSH)
+# Add-on runs on port 22222 by default
+port: 22222
+
+# Web terminal
+web_interface: true
+ssl: false
+certfile: fullchain.pem
+keyfile: privkey.pem
+
+# Allow root login (required for HAOS)
+allow_root: true
+
+# Compatibility
+compatibility: "openssh"
+
+# Logging
+log_level: "info"
+
+# Environment variables
+env_vars:
+  - "TERM=xterm-256color"

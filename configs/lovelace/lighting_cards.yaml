@@ -1,0 +1,136 @@
+# Lighting Cards for Lovelace Grid View
+# File: configs/lovelace/lighting_cards.yaml
+
+# Top Floor Lights
+- type: "light"
+  entity: light.top_floor_bedroom_main
+  name: "Bedroom Main"
+  icon: "mdi:ceiling-light"
+
+- type: "light"
+  entity: light.top_floor_bedside_left
+  name: "Bedside Left"
+  icon: "mdi:lamp"
+
+- type: "light"
+  entity: light.top_floor_bedside_right
+  name: "Bedside Right"
+  icon: "mdi:lamp"
+
+- type: "light"
+  entity: light.top_floor_closet
+  name: "Closet"
+  icon: "mdi:lightbulb"
+
+- type: "light"
+  entity: light.top_floor_bathroom
+  name: "Bathroom"
+  icon: "mdi:shower"
+
+- type: "light"
+  entity: light.top_floor_hallway
+  name: "Hallway"
+  icon: "mdi:ceiling-light"
+
+# Mid Floor Lights
+- type: "light"
+  entity: light.mid_floor_living_room_main
+  name: "Living Room Main"
+  icon: "mdi:ceiling-light"
+
+- type: "light"
+  entity: light.mid_floor_living_room_accent
+  name: "Living Room Accent"
+  icon: "mdi:led-strip"
+
+- type: "light"
+  entity: light.mid_floor_kitchen_main
+  name: "Kitchen Main"
+  icon: "mdi:ceiling-light"
+
+- type: "light"
+  entity: light.mid_floor_kitchen_under_cabinet
+  name: "Kitchen Under Cabinet"
+  icon: "mdi:led-strip"
+
+- type: "light"
+  entity: light.mid_floor_dining
+  name: "Dining"
+  icon: "mdi:ceiling-light"
+
+- type: "light"
+  entity: light.mid_floor_hallway
+  name: "Hallway"
+  icon: "mdi:ceiling-light"
+
+# Bottom Floor Lights
+- type: "light"
+  entity: light.bottom_floor_office
+  name: "Office"
+  icon: "mdi:ceiling-light"
+
+- type: "light"
+  entity: light.bottom_floor_gym
+  name: "Gym"
+  icon: "mdi:ceiling-light"
+
+- type: "light"
+  entity: light.bottom_floor_laundry
+  name: "Laundry"
+  icon: "mdi:ceiling-light"
+
+- type: "light"
+  entity: light.bottom_floor_garage
+  name: "Garage"
+  icon: "mdi:ceiling-light"
+
+- type: "light"
+  entity: light.bottom_floor_exterior_front
+  name: "Exterior Front"
+  icon: "mdi:coach-lamp"
+
+- type: "light"
+  entity: light.bottom_floor_exterior_rear
+  name: "Exterior Rear"
+  icon: "mdi:coach-lamp"
+
+# Scenes
+- type: "button"
+  entity: scene.movie_night
+  name: "Movie Night"
+  icon: "mdi:movie"
+  tap_action:
+    action: "call-service"
+    service: "scene.turn_on"
+    target:
+      entity_id: scene.movie_night
+
+- type: "button"
+  entity: scene.good_morning
+  name: "Good Morning"
+  icon: "mdi:weather-sunny"
+  tap_action:
+    action: "call-service"
+    service: "scene.turn_on"
+    target:
+      entity_id: scene.good_morning
+
+- type: "button"
+  entity: scene.good_night
+  name: "Good Night"
+  icon: "mdi:weather-night"
+  tap_action:
+    action: "call-service"
+    service: "scene.turn_on"
+    target:
+      entity_id: scene.good_night
+
+- type: "button"
+  entity: scene.all_off
+  name: "All Off"
+  icon: "mdi:power"
+  tap_action:
+    action: "call-service"
+    service: "scene.turn_on"
+    target:
+      entity_id: scene.all_off
