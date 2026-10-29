@@ -2,7 +2,11 @@ esphome:
   on_boot:
     - then:
         - delay: 10s
-        - component.update: scd41_sensor
+        - repeat:
+            count: 5
+            then:
+              - component.update: scd41_sensor
+              - delay: 6s
 
 esp32:
   board: esp32-c3-devkitm-1
@@ -45,13 +49,13 @@ font:
     size: 16
   - file: "gfonts://Roboto"
     id: font_co2
-    size: 40
+    size: 44
   - file: "gfonts://Roboto"
     id: font_temp
-    size: 48
+    size: 44
   - file: "gfonts://Roboto"
     id: font_humid
-    size: 32
+    size: 44
 
   - file: "gfonts://Material+Icons"
     id: font_icons
@@ -68,17 +72,32 @@ sensor:
     update_interval: never
     automatic_self_calibration: true
     altitude_compensation: 500MAMSL
-    temperature_offset: -4°C
+    temperature_offset: 1°C
     measurement_mode: single_shot
     co2:
       id: co2_value
       name: "${friendly_name} CO2"
+      filters:
+        - sliding_window_moving_average:
+            window_size: 5
+            send_every: 5
+            send_first_at: 5
     temperature:
       id: temperature_value
       name: "${friendly_name} Temperature"
+      filters:
+        - sliding_window_moving_average:
+            window_size: 5
+            send_every: 5
+            send_first_at: 5
     humidity:
       id: humidity_value
       name: "${friendly_name} Humidity"
+      filters:
+        - sliding_window_moving_average:
+            window_size: 5
+            send_every: 5
+            send_first_at: 5
       on_value:
         then:
           - component.update: epaper_display
@@ -103,25 +122,25 @@ display:
       ESP_LOGI("screen", "screen co2=%.0f ppm temp=%.2f C hum=%.2f %%", id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
       it.printf(0, 0, id(font_label), "${floor_label}");
       it.line(0, 20, 200, 20);
-      it.print(0, 26, id(font_icons), "\ue7b0");  // co2
+      it.print(0, 50, id(font_icons), TextAlign::CENTER_LEFT, "\ue7b0");  // co2
       if (isnan(id(co2_value).state)) {
-        it.print(200, 24, id(font_co2), TextAlign::TOP_RIGHT, "--");
+        it.print(200, 50, id(font_co2), TextAlign::CENTER_RIGHT, "--");
       } else {
-        it.printf(200, 24, id(font_co2), TextAlign::TOP_RIGHT, "%.0f", id(co2_value).state);
+        it.printf(200, 50, id(font_co2), TextAlign::CENTER_RIGHT, "%.0f", id(co2_value).state);
       }
       it.line(0, 80, 200, 80);
-      it.print(0, 88, id(font_icons), "\ue1ff");  // thermometer
+      it.print(0, 110, id(font_icons), TextAlign::CENTER_LEFT, "\ue1ff");  // thermometer
       if (isnan(id(temperature_value).state)) {
-        it.print(200, 90, id(font_temp), TextAlign::TOP_RIGHT, "-- C");
+        it.print(200, 110, id(font_temp), TextAlign::CENTER_RIGHT, "-- C");
       } else {
-        it.printf(200, 90, id(font_temp), TextAlign::TOP_RIGHT, "%.1f C", id(temperature_value).state);
+        it.printf(200, 110, id(font_temp), TextAlign::CENTER_RIGHT, "%.1f C", id(temperature_value).state);
       }
       it.line(0, 140, 200, 140);
-      it.print(0, 148, id(font_icons), "\ue798");  // water drop
+      it.print(0, 170, id(font_icons), TextAlign::CENTER_LEFT, "\ue798");  // water drop
       if (isnan(id(humidity_value).state)) {
-        it.print(200, 150, id(font_humid), TextAlign::TOP_RIGHT, "-- %%");
+        it.print(200, 170, id(font_humid), TextAlign::CENTER_RIGHT, "-- %%");
       } else {
-        it.printf(200, 150, id(font_humid), TextAlign::TOP_RIGHT, "%.0f %%", id(humidity_value).state);
+        it.printf(200, 170, id(font_humid), TextAlign::CENTER_RIGHT, "%.0f %%", id(humidity_value).state);
       }
 
 deep_sleep:

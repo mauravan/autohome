@@ -1,8 +1,11 @@
 # Battery CO₂ Sensor Node (ESP32 + SCD41 + WeAct e-paper)
 
 Battery-powered per-floor CO₂ / temperature / humidity node. Wakes every 5 minutes,
-takes one SCD41 single-shot measurement, fully refreshes a WeAct 1.54" B/W e-paper
-(SSD1681), publishes to the Mosquitto broker via ESPHome MQTT discovery, then deep-sleeps.
+takes 5× SCD41 single-shot measurements (~5 s each, averaged via
+`sliding_window_moving_average` with `window_size: 5` / `send_every: 5` /
+`send_first_at: 5`, so only the 5-sample mean is published), fully refreshes a WeAct
+1.54" B/W e-paper (SSD1681), publishes to the Mosquitto broker via ESPHome MQTT
+discovery, then deep-sleeps.
 
 Three variants share one package: `top.yaml`, `mid.yaml`, `bottom.yaml` differ only in
 `device_name` / `friendly_name` / `floor_label`. Sensor `name`s live in
@@ -65,9 +68,9 @@ esphome run top.yaml --device /dev/ttyACM0
 `secrets.yaml` is git-ignored and never committed. Flash over USB serial (the node is
 MQTT-only — no `api:`/`ota:` — so no native-API handshake cost during its short wake).
 
-Serial monitor should show, in order: boot → `WiFi connected` → SCD41 single-shot
-measurement (~5 s) → CO₂/temp/humidity logged → `MQTT connected` → display render →
-`Entering deep sleep`. Then silence for ~5 min before the wake sequence repeats.
+Serial monitor should show, in order: boot → `WiFi connected` → 5× SCD41 single-shot
+measurements (~5 s each) → CO₂/temp/humidity mean logged → `MQTT connected` → display
+render → `Entering deep sleep`. Then silence for ~5 min before the wake sequence repeats.
 
 Confirm telemetry from the workstation:
 
