@@ -1,0 +1,12 @@
+substitutions:
+  device_name: "top-floor-co2"
+  friendly_name: "Top Floor"
+  floor_label: "TOP FLOOR"
+
+esphome:
+  name: "${device_name}"
+  friendly_name: "${friendly_name}"
+  comment: "Battery CO2 sensor - top floor"
+
+packages:
+  common: !include co2-node-common.yaml

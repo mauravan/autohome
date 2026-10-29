@@ -1,0 +1,12 @@
+substitutions:
+  device_name: "bottom-floor-co2"
+  friendly_name: "Bottom Floor"
+  floor_label: "BOTTOM FLOOR"
+
+esphome:
+  name: "${device_name}"
+  friendly_name: "${friendly_name}"
+  comment: "Battery CO2 sensor - bottom floor"
+
+packages:
+  common: !include co2-node-common.yaml

@@ -38,14 +38,10 @@ Create the 6 tracking files: `README.md`, `INVENTORY.md`, `SENSORS.md`, `STANDAR
 - **Fallback**: If Velux are RTS too (check remote), RFLink handles both — no KLF200 needed.
 ### Phase 4 — Environmental (CO₂ from Day 1)
 **Goal**: Per-floor CO₂ + temperature + humidity in HA; automation opens roof window when CO₂ > 1000 ppm.
-- Purchase: **3× Sensirion SCD41 breakout boards** (I2C, 0x62).
-- Wire one per floor node:
-  - Top: Pi Zero W #1, I2C GPIO 2/3 (3.3 V, pull-ups on breakout).
-  - Mid: Pi 3B #2, I2C GPIO 2/3.
-  - Bottom: Pi Zero W #2, I2C GPIO 2/3.
-- Software per node: ESPHome or lightweight Python MQTT publisher (systemd service).
-  - Read SCD41 every 30 s (single-shot or periodic mode).
-  - Publish JSON to `homeassistant/sensor/<floor>/scd41/config` (auto-discovery) + state to `home/<floor>/scd41`.
+- Purchase: **3× Sensirion SCD41 breakout boards** (I2C, 0x62), **3× ESP32** (dev: WROOM 32 DevKit; production: ESP32-C6 mini), **3× WeAct 1.54" 200×200 B/W e-paper** (SSD1681).
+- Wire one battery node per floor: ESP32 + SCD41 (I2C 0x62) + WeAct e-paper (SPI).
+- Firmware: ESPHome (`firmware/co2-node/`, MQTT-only — no `api:`/`ota:`). Each node wakes every 5 min, takes one SCD41 single-shot measurement, fully refreshes the e-paper, publishes via MQTT discovery, then deep-sleeps.
+  - ESPHome MQTT discovery (`discovery_prefix: homeassistant`) publishes `homeassistant/sensor/<object_id>/config` and the state topic; HA surfaces entities as `sensor.top_floor_co2` etc.
 - HA: auto-discovered sensors appear as `sensor.top_floor_co2`, `sensor.top_floor_temperature`, `sensor.top_floor_humidity` (same for mid/bottom).
 - Automation (HA YAML or UI):
   ```yaml
@@ -81,6 +77,9 @@ Create the 6 tracking files: `README.md`, `INVENTORY.md`, `SENSORS.md`, `STANDAR
 | Philips Hue Bridge v2 | 1 | 50 | 50 | Zigbee coordinator for lamps |
 | Hue lamps (per room) | ~8–12 | 15–50 | 200–400 | Mix White Ambiance + Color |
 | Sensirion SCD41 breakout | 3 | 35–45 | 120 | CO₂ + T + RH, I2C 0x62 |
+| ESP32 WROOM 32 DevKit | 1–2 | 10 | 20 | Dev bench; `esp32dev` board |
+| ESP32-C6 mini | 3+ | 8 | 32 | Production battery nodes (1 per floor + spares) |
+| WeAct 1.54" 200×200 B/W e-paper | 3+ | 15 | 60 | SSD1681, SPI (1 per floor + spares) |
 | 8 GB micro-SD (A2) | 5+ | 5 | 25 | HA OS + 3 nodes + spares |
 | micro-USB PSU (Pi Zero W) | 2 | 8 | 16 | 5 V 2.5 A recommended |
 | ADS1115 or MCP3008 HAT | 1 | 5 | 5 | For ADXL335 / analog sensors |
@@ -96,7 +95,7 @@ Create the 6 tracking files: `README.md`, `INVENTORY.md`, `SENSORS.md`, `STANDAR
 1. HA reachable at `http://homeassistant.local` with touchscreen dashboard.
 2. Every Hue lamp toggleable from HA.
 3. Every Somfy io blind + Velux roof window open/close/position from HA.
-4. Three `sensor.<floor>_co2` entities in HA, updating ≤30 s.
+4. Three `sensor.<floor>_co2` entities in HA, updating ~every 5 min (battery node wake cadence).
 5. Automation: CO₂ > 1000 ppm on any floor → corresponding Velux roof window opens.
 6. MQTT broker receives telemetry from all 3 floor nodes + LoRa (if deployed).
 
@@ -104,7 +103,6 @@ Create the 6 tracking files: `README.md`, `INVENTORY.md`, `SENSORS.md`, `STANDAR
 
 ## Out of Scope (Future Plans)
 
-- Full ESPHome firmware for Pi Zero W nodes (replace Python publishers).
 - Thread/Matter border router (RPi 5 + OpenThread dongle).
 - Local voice (Wyoming / Assist) on hub Pi.
 - Energy monitoring (Shelly EM / P1 meter).

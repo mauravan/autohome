@@ -1,0 +1,12 @@
+substitutions:
+  device_name: "mid-floor-co2"
+  friendly_name: "Mid Floor"
+  floor_label: "MID FLOOR"
+
+esphome:
+  name: "${device_name}"
+  friendly_name: "${friendly_name}"
+  comment: "Battery CO2 sensor - mid floor"
+
+packages:
+  common: !include co2-node-common.yaml
