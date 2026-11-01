@@ -150,7 +150,20 @@ sensor:
               id(scd41_sensor)->write_command((uint16_t) 0x36e0);
           - display.page.show: page_normal
           - component.update: epaper_display   # single render, sleeping icon (persists); update() blocks on BUSY
+          - lambda: |-
+              float wake_s = millis() / 1000.0f;
+              ESP_LOGI("wake", "wake duration %.1f s", wake_s);
+              id(wake_duration).publish_state(wake_s);
           - deep_sleep.enter: deep_sleep_id
+  - platform: template
+    id: wake_duration
+    name: "${friendly_name} Wake Duration"
+    unit_of_measurement: "s"
+    accuracy_decimals: 1
+    device_class: duration
+    state_class: measurement
+    entity_category: diagnostic
+    update_interval: never
 
 display:
   - platform: waveshare_epaper
