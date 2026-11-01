@@ -96,11 +96,38 @@ Same `co2-node-common.yaml` logic. When the C6 board is in hand, three changes:
    DC-bias-while-floating risk). ESP32-C6 deep-sleep is ~7 µA (chip); the board LDO
    quiescent current dominates — pick an LDO with µA-scale IQ.
 
+### Power optimizations already in `co2-node-common.yaml`
+
+- `logger.level: NONE` — no log formatting/TX per wake (flip to `DEBUG` only while developing).
+- `wifi.power_save_mode: LIGHT` — modem sleeps during the ~30 s SCD41 measurement phase (the largest idle draw).
+- `wifi.output_power: 8.5dB` — cuts TX peak current; raise toward 20 dB if range is marginal.
+- `i2c.scan: false` — no boot-time bus probe.
+- Single e-paper full refresh per wake (was two renders + a 1 s delay; `component.update` blocks on BUSY, so one render is safe).
+- `cpu_frequency: 80MHZ` — minimum for the C3.
+- `deep_sleep` after publish; SCD41 `power_down` (0x36e0) → ~0.8 µA between wakes.
+
 ### Power budget (for battery sizing)
 
-- SCD41 single-shot ≈ 0.45 mA average at 5-min cadence.
-- ESP active ≈ 30–50 mA for ~30 s per 5 min dominates.
-- Expect ~1–3 months on a 2500 mAh cell; tune via `sleep_duration` / `run_duration`.
+Estimates, not measured. Per 5-min wake after the optimizations above:
+
+| Phase | Time | Notes |
+|---|---|---|
+| Boot + WiFi associate + DHCP | ~2–3 s | overlaps the first measurement |
+| 5× SCD41 single-shot | ~30 s | radio idles in modem sleep; dominates active energy |
+| MQTT connect + publish | ~1 s | short TX burst |
+| 1× e-paper full refresh | ~3 s | single render |
+| Deep sleep | ~4.5 min | board LDO quiescent current dominates |
+
+- The ~30 s measurement phase is ~85 % of active energy. Biggest levers, in order: raise `sleep_duration` (cadence), then cut active time (fewer samples / renders).
+- Expect roughly 1–3 months on a 2500 mAh cell at 5-min cadence. `sleep_duration` 5→15 min ≈ 3× life, 5→30 min ≈ 6×.
+
+### Battery build recommendations
+
+1. **Cadence first.** CO₂/T/RH in a house changes slowly; 15–30 min is fine for a dashboard and multiplies battery life. Tune `deep_sleep.sleep_duration`.
+2. **Board selection.** A bare ESP32-C3/C6 module + µA-quiescent LDO (TPS7A02, MCP1700) beats a dev board, whose onboard LED and LDO dominate sleep current. Avoid USB-serial + always-on LED dev boards for the battery build.
+3. **Gate peripheral VCC.** P-MOSFET on SCD41 + e-paper 3V3 (see step 3 above) kills both during sleep; also removes the e-paper DC-bias-while-floating risk.
+4. **Battery monitoring.** Add an ADC + high-impedance divider (GPIO-gated so it doesn't leak during sleep) and publish voltage so HA can alert before the cell dies.
+5. **ASC note.** `automatic_self_calibration: true` *does* run in single-shot mode, but it assumes a ~5 min measurement interval (SCD41 datasheet §3.10.5) and weekly ~400 ppm fresh-air exposure. Extending `sleep_duration` slows ASC proportionally; for long cadences consider periodic FRC against a reference instead.
 
 ## Contingencies
 
