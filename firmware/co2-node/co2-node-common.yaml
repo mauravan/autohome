@@ -1,6 +1,10 @@
 esphome:
   on_boot:
     - then:
+        - lambda: |-
+            // Wake SCD41 from power-down. Datasheet: wake_up (0x36f6) is NOT ACKed, so
+            // write_command returns false — expected/harmless; sensor reaches idle in ~30 ms.
+            id(scd41_sensor)->write_command((uint16_t) 0x36f6);
         - delay: 10s
         - repeat:
             count: 5
@@ -105,6 +109,9 @@ sensor:
               ESP_LOGI("mqtt_tx", "mqtt co2=%.0f ppm temp=%.2f C hum=%.2f %% (auto-published to ${device_name}/sensor/.../state)",
                 id(co2_value).state, id(temperature_value).state, x);
           - delay: 1s
+          - lambda: |-
+              // SCD41 -> sleep (power_down, 0x36e0); ~0.8 uA until next wake_up.
+              id(scd41_sensor)->write_command((uint16_t) 0x36e0);
           - deep_sleep.enter: deep_sleep_id
 
 display:
