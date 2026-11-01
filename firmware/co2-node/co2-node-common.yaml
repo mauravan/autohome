@@ -2,10 +2,8 @@ esphome:
   on_boot:
     - then:
         - lambda: |-
-            // Wake SCD41 from power-down. Datasheet: wake_up (0x36f6) is NOT ACKed, so
-            // write_command returns false — expected/harmless; sensor reaches idle in ~30 ms.
             id(scd41_sensor)->write_command((uint16_t) 0x36f6);
-        - delay: 10s
+        - delay: 3s
         - repeat:
             count: 5
             then:
@@ -17,6 +15,7 @@ esp32:
   variant: esp32c3
   framework:
     type: arduino
+  cpu_frequency: 80MHZ
 
 logger:
   level: DEBUG   # dev only; set WARN/NONE on production builds to save power
