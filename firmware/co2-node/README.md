@@ -33,24 +33,41 @@ ids the dashboard already references (`sensor.top_floor_co2`, `_temperature`,
 
 | Signal | ESP32-C3 GPIO | Note |
 |---|---|---|
-| SCD41 SDA | GPIO1 | I²C; breakout usually has 10 kΩ pull-ups |
-| SCD41 SCL | GPIO21 | |
-| SCD41 VDD | 3V3 | |
+| SCD41 SDA | GPIO1 | I²C; breakout usually has 10 kΩ pull-ups to its VDD — ESPHome internal pulls are OFF so a powered-down SCD41 doesn't back-feed 3V3 |
+| SCD41 SCL | GPIO21 | Moved off GPIO3 to free ADC1_CH3 for the battery divider. GPIO21 = UART0 TX: ROM boot text may toggle SCL during reset, harmless once booted. Logger stays on native USB (GPIO18/19), NOT UART0 |
+| SCD41 VDD | switched 3V3 | P-MOSFET high side from battery board; GPIO20 gate HIGH = SCD41 powered. Give the rail 1 s settle (on_boot priority 600) before any I2C |
 | SCD41 GND | GND | |
 | EPD DIN (MOSI) | GPIO6 | |
 | EPD CLK (SCK) | GPIO4 | |
 | EPD CS | GPIO7 | |
 | EPD DC | GPIO5 | |
 | EPD RST | GPIO0 | |
-| EPD BUSY | GPIO10 | |
-| EPD VCC | 3V3 | |
+| EPD BUSY | GPIO10 | BUSY HIGH during update; `update()` blocks. "Boot loop + blank page" = EPD init before rail stable or BUSY never falling |
+| EPD VCC | switched 3V3 | Same MOSFET as SCD41. `ALWAYS_ON` must bring it up at switch setup (before display init); never drive CS/DC/RST/SCK/MOSI while this rail is 0 (back-powers the panel) |
 | EPD GND | GND | |
 
 GPIO2 / GPIO8 / GPIO9 (boot strapping, onboard LED, BOOT button) are left untouched.
 Battery monitor: the battery-management board presents **VBAT/2** on its ADC output →
-**GPIO3** (ADC1_CH3); the display-power steering MOSFET gate → **GPIO20** (active-high,
-HIGH = display powered). GPIO2 is a boot-strapping pin and is **not** used for the divider —
+**GPIO3** (ADC1_CH3); the peripheral-power steering MOSFET gate → **GPIO20** (active-high,
+HIGH = SCD41 + EPD powered). GPIO2 is a boot-strapping pin and is **not** used for the divider —
 VBAT/2 sits below the ~2.475 V strap-high threshold at reset and would force download-boot.
+**GPIO20 is NOT an RTC pin** — it floats during deep-sleep. The external gate needs its own
+pull-down so the rail stays off in sleep, and the firmware re-asserts HIGH + 1 s settle on
+every wake before touching I2C or the panel. Gate *only* SCD41 if the EPD shares the rail
+unreliably: EPD idle is ~0 anyway, SCD41 gated is the real saving.
+
+### If it works 1–2 wakes then sticks on BOOTING
+
+That pattern is a brownout / rail-sag signature, not WiFi. The cell sags under transmit +
+EPD refresh + SCD41 load; the next reset fires with a half-charged SCD41 / unseated EPD,
+`scd41_sensor` warns (`Data not ready` / NACK), the panel never renders page_normal, and
+`deep_sleep.enter` is only reached via the failsafe. Check in this order:
+
+1. Scope/meter the switched 3V3 at reset: must be stable 3.3 V **before** any I2C or EPD render.
+2. Bypass the MOSFET (EPD VCC + SCD41 VDD straight to 3V3). If cycling recovers, the FET or its gate drive is the fault — not SCL21.
+3. In the DEBUG logs (`hardware_uart: USB_SERIAL_JTAG`, USB-C serial): `wakeup_cause`, `scd4x` `Failed to stop measurements` / `Data not ready` (sensor not up), `Timeout while displaying image!` (EPD BUSY stuck).
+4. Compare the two `battery_voltage` reads per wake (boot = unloaded, pre-sleep = loaded). A large drop says the battery / LDO sags under load.
+5. Revert to `logger: level: NONE` + `sleep_duration: 5min` once stable — DEBUG logging over USB costs wake time.
 
 ## Flash & verify (dev, ESP32-C3 SuperMini)
 
