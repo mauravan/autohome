@@ -4,7 +4,11 @@ esphome:
       then:
         - switch.turn_on: peripheral_power   # rail up first (ALWAYS_ON already did at setup); settle for SCD41 POR + EPD reset
         - delay: 1s
-        - component.update: battery_voltage   # read battery once per wake, rail stable
+        - repeat:
+            count: 3
+            then:
+              - component.update: battery_voltage   # 3 ADC reads, averaged via sliding_window_moving_average (window 3)
+              - delay: 100ms
     - priority: 100
       then:
         - if:
@@ -20,7 +24,7 @@ esphome:
             id(scd41_sensor)->write_command((uint16_t) 0x36f6);
         - delay: 3s
         - repeat:
-            count: 5
+            count: 3
             then:
               - component.update: scd41_sensor
               - delay: 6s
@@ -122,34 +126,37 @@ sensor:
       name: "${friendly_name} CO2"
       filters:
         - sliding_window_moving_average:
-            window_size: 5
-            send_every: 5
-            send_first_at: 5
+            window_size: 3
+            send_every: 3
+            send_first_at: 3
     temperature:
       id: temperature_value
       name: "${friendly_name} Temperature"
       filters:
         - sliding_window_moving_average:
-            window_size: 5
-            send_every: 5
-            send_first_at: 5
+            window_size: 3
+            send_every: 3
+            send_first_at: 3
     humidity:
       id: humidity_value
       name: "${friendly_name} Humidity"
       filters:
         - sliding_window_moving_average:
-            window_size: 5
-            send_every: 5
-            send_first_at: 5
+            window_size: 3
+            send_every: 3
+            send_first_at: 3
       on_value:
         then:
           - lambda: |-
               ESP_LOGI("mqtt_tx", "mqtt co2=%.0f ppm temp=%.2f C hum=%.2f %% (auto-published to ${device_name}/sensor/.../state)",
                 id(co2_value).state, id(temperature_value).state, x);
           - lambda: |-
-              // Battery was read at boot (priority 600) before MQTT connected; re-publish now.
-              // Re-publishing battery_voltage re-runs its on_value, which re-publishes battery_percent too.
-              id(battery_voltage).publish_state(id(battery_voltage).state);
+              // Battery was averaged at boot (before MQTT connected); re-publish the averaged
+              // level now that the broker is up. battery_percent has no filter, so publish_state
+              // goes straight to the MQTT callback. (battery_voltage is republished by the MQTT
+              // resend-on-connect path, which bypasses the sensor filter.)
+              if (!isnan(id(battery_percent).state))
+                id(battery_percent).publish_state(id(battery_percent).state);
           - lambda: |-
               // SCD41 -> sleep (power_down, 0x36e0); ~0.8 uA until next wake_up.
               id(scd41_sensor)->write_command((uint16_t) 0x36e0);
@@ -159,7 +166,6 @@ sensor:
               float wake_s = millis() / 1000.0f;
               ESP_LOGI("wake", "wake duration %.1f s", wake_s);
               id(wake_duration).publish_state(wake_s);
-          - component.update: battery_voltage   # loaded read: compare vs boot read to see rail sag under wifi+sensor load
           - delay: 500ms
           - switch.turn_off: peripheral_power
           - deep_sleep.enter: deep_sleep_id
@@ -184,6 +190,10 @@ sensor:
     accuracy_decimals: 2
     filters:
       - multiply: 2.0   # battery-management board presents VBAT/2; scale back to cell volts
+      - sliding_window_moving_average:
+          window_size: 3
+          send_every: 3
+          send_first_at: 3
     on_value:
       then:
         - lambda: |-
@@ -208,6 +218,7 @@ sensor:
               }
             }
             id(battery_percent).publish_state(pct);
+            ESP_LOGI("battery", "cell %.3f V -> %.1f %%", v, pct);
   - platform: template
     id: battery_percent
     name: "${friendly_name} Battery"
@@ -301,7 +312,7 @@ display:
 deep_sleep:
   id: deep_sleep_id
   sleep_duration: 5min
-  run_duration: 120s   # failsafe: measurement + render ≈ 45 s; guarantees sleep even if wifi/mqtt/sensor hangs
+  run_duration: 60s   # failsafe: measurement + render ≈ 30 s; guarantees sleep even if wifi/mqtt/sensor hangs
 
 interval:
   - interval: 1s

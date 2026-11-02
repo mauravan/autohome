@@ -5,7 +5,9 @@ takes 5× SCD41 single-shot measurements (~5 s each, averaged via
 `sliding_window_moving_average` with `window_size: 5` / `send_every: 5` /
 `send_first_at: 5`, so only the 5-sample mean is published), fully refreshes a WeAct
 1.54" B/W e-paper (SSD1681), publishes to the Mosquitto broker via ESPHome MQTT
-discovery, then deep-sleeps.
+discovery, then deep-sleeps. Battery is sampled 3× at boot and averaged via
+`sliding_window_moving_average` (window 3), matching the SCD41 channels; the averaged
+level is republished after MQTT connects.
 
 Three variants share one package: `top.yaml`, `mid.yaml`, `bottom.yaml` differ only in
 `device_name` / `friendly_name` / `floor_label`. Sensor `name`s live in
@@ -66,8 +68,7 @@ EPD refresh + SCD41 load; the next reset fires with a half-charged SCD41 / unsea
 1. Scope/meter the switched 3V3 at reset: must be stable 3.3 V **before** any I2C or EPD render.
 2. Bypass the MOSFET (EPD VCC + SCD41 VDD straight to 3V3). If cycling recovers, the FET or its gate drive is the fault — not SCL21.
 3. In the DEBUG logs (`hardware_uart: USB_SERIAL_JTAG`, USB-C serial): `wakeup_cause`, `scd4x` `Failed to stop measurements` / `Data not ready` (sensor not up), `Timeout while displaying image!` (EPD BUSY stuck).
-4. Compare the two `battery_voltage` reads per wake (boot = unloaded, pre-sleep = loaded). A large drop says the battery / LDO sags under load.
-5. Revert to `logger: level: NONE` + `sleep_duration: 5min` once stable — DEBUG logging over USB costs wake time.
+4. Revert to `logger: level: NONE` + `sleep_duration: 5min` once stable — DEBUG logging over USB costs wake time.
 
 ## Flash & verify (dev, ESP32-C3 SuperMini)
 
@@ -99,6 +100,8 @@ mosquitto_sub -h homeassistant.local -u mqtt_user -P 'YOUR_MQTT_PASSWORD' -t '#'
 
 Expect discovery configs under `homeassistant/sensor/…/config` and state topics carrying
 the ppm value, then silence during sleep.
+
+Top/mid devices that predate the battery sensor must be reflashed before battery entities appear (bottom already publishes).
 
 ## Production port: ESP32-C6 mini + battery (documented; not built yet)
 
