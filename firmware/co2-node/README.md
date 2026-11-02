@@ -34,7 +34,7 @@ ids the dashboard already references (`sensor.top_floor_co2`, `_temperature`,
 | Signal | ESP32-C3 GPIO | Note |
 |---|---|---|
 | SCD41 SDA | GPIO1 | I²C; breakout usually has 10 kΩ pull-ups |
-| SCD41 SCL | GPIO3 | |
+| SCD41 SCL | GPIO21 | |
 | SCD41 VDD | 3V3 | |
 | SCD41 GND | GND | |
 | EPD DIN (MOSI) | GPIO6 | |
@@ -46,9 +46,11 @@ ids the dashboard already references (`sensor.top_floor_co2`, `_temperature`,
 | EPD VCC | 3V3 | |
 | EPD GND | GND | |
 
-GPIO2 / GPIO8 / GPIO9 (boot strapping, onboard LED, BOOT button) and GPIO20 / GPIO21
-(UART0 console) are left untouched. The board is USB-powered, so there is no VCC gating
-on this build.
+GPIO2 / GPIO8 / GPIO9 (boot strapping, onboard LED, BOOT button) are left untouched.
+Battery monitor: the battery-management board presents **VBAT/2** on its ADC output →
+**GPIO3** (ADC1_CH3); the display-power steering MOSFET gate → **GPIO20** (active-high,
+HIGH = display powered). GPIO2 is a boot-strapping pin and is **not** used for the divider —
+VBAT/2 sits below the ~2.475 V strap-high threshold at reset and would force download-boot.
 
 ## Flash & verify (dev, ESP32-C3 SuperMini)
 

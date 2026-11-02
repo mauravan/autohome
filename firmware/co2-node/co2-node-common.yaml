@@ -1,5 +1,8 @@
 esphome:
   on_boot:
+    - priority: 200
+      then:
+        - component.update: battery_voltage   # read battery once per wake
     - priority: 100
       then:
         - if:
@@ -7,6 +10,7 @@ esphome:
               lambda: 'return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED;'
             then:
               - display.page.show: page_boot
+              - delay: 200ms                  # let panel settle after power-on before first render
               - component.update: epaper_display   # boot page v1: cold start only
             else:
               - display.page.show: page_normal   # timer wake: no render, keep persisted sleeping image
@@ -56,7 +60,7 @@ mqtt:
 
 i2c:
   sda: GPIO1
-  scl: GPIO3
+  scl: GPIO21   # was GPIO3; freed GPIO3 (ADC1_CH3) for the battery sense line
   scan: false   # no boot-time bus probe: saves a few transactions + delay
   sda_pullup_enabled: true
   scl_pullup_enabled: true
@@ -93,6 +97,8 @@ font:
       - "\U0000e8f4"  # visibility (open eye) — awake
       - "\U0000e51c"  # dark_mode (moon) — sleeping
       - "\U0000e5ca"  # check — connected
+      - "\U0000e1a4"  # battery_full
+      - "\U0000e19c"  # battery_alert
 
 globals:
   - id: sleeping
@@ -154,6 +160,7 @@ sensor:
               float wake_s = millis() / 1000.0f;
               ESP_LOGI("wake", "wake duration %.1f s", wake_s);
               id(wake_duration).publish_state(wake_s);
+          - switch.turn_off: display_power
           - deep_sleep.enter: deep_sleep_id
   - platform: template
     id: wake_duration
@@ -164,6 +171,41 @@ sensor:
     state_class: measurement
     entity_category: diagnostic
     update_interval: never
+  - platform: adc
+    id: battery_voltage
+    pin: GPIO3
+    attenuation: 12db
+    update_interval: never
+    name: "${friendly_name} Battery Voltage"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    filters:
+      - multiply: 2.0   # battery-management board presents VBAT/2; scale back to cell volts
+    on_value:
+      then:
+        - lambda: |-
+            float pct = (x - 3.6f) / 0.6f * 100.0f;   // 4.2 V = 100 %, 3.6 V = 0 %
+            if (pct < 0.0f) pct = 0.0f;
+            if (pct > 100.0f) pct = 100.0f;
+            id(battery_percent).publish_state(pct);
+  - platform: template
+    id: battery_percent
+    name: "${friendly_name} Battery"
+    unit_of_measurement: "%"
+    device_class: battery
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: never
+
+switch:
+  - platform: gpio
+    id: display_power
+    name: "Display Power"
+    pin: GPIO20
+    restore_mode: ALWAYS_ON   # HIGH at setup -> display powered before init
+    internal: true            # firmware-managed power gate, not an HA entity
 
 display:
   - platform: waveshare_epaper
@@ -183,6 +225,15 @@ display:
           ESP_LOGI("screen", "boot wifi=%d mqtt=%d", id(wifi_component).is_connected(), id(mqtt_client).is_connected());
           it.printf(0, 0, id(font_label), "${floor_label}");
           it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, id(sleeping) ? "\ue51c" : "\ue8f4");
+          {
+            float bp = id(battery_percent).state;
+            it.print(176, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 20.0f) ? "\ue1a4" : "\ue19c");
+            if (isnan(bp)) {
+              it.print(160, 8, id(font_label), TextAlign::CENTER_RIGHT, "-- %");
+            } else {
+              it.printf(160, 8, id(font_label), TextAlign::CENTER_RIGHT, "%.0f %%", bp);
+            }
+          }
           it.line(0, 20, 200, 20);
           it.print(0, 30, id(font_label), "BOOTING...");
           it.print(0, 70, id(font_label), "WIFI...");
@@ -200,6 +251,15 @@ display:
           ESP_LOGI("screen", "screen co2=%.0f ppm temp=%.2f C hum=%.2f %%", id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
           it.printf(0, 0, id(font_label), "${floor_label}");
           it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, id(sleeping) ? "\ue51c" : "\ue8f4");
+          {
+            float bp = id(battery_percent).state;
+            it.print(176, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 20.0f) ? "\ue1a4" : "\ue19c");
+            if (isnan(bp)) {
+              it.print(160, 8, id(font_label), TextAlign::CENTER_RIGHT, "-- %");
+            } else {
+              it.printf(160, 8, id(font_label), TextAlign::CENTER_RIGHT, "%.0f %%", bp);
+            }
+          }
           it.line(0, 20, 200, 20);
           it.print(0, 50, id(font_icons), TextAlign::CENTER_LEFT, "\ue7b0");  // co2
           if (isnan(id(co2_value).state)) {
