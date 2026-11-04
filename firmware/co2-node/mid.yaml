@@ -9,4 +9,5 @@ esphome:
   comment: "Battery CO2 sensor - mid floor"
 
 packages:
-  common: !include co2-node-common.yaml
+  hardware: !include co2-node-common.yaml
+  home: !include co2-node-home.yaml

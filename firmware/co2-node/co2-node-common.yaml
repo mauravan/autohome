@@ -1,5 +1,14 @@
+substitutions:
+  log_level: "NONE"
 esphome:
   on_boot:
+    - priority: 650
+      then:
+        - lambda: |-
+            float t = id(temp_offset).state;
+            if (!isnan(t)) id(scd41_sensor)->set_temperature_offset(t);
+            float a = id(altitude).state;
+            if (!isnan(a)) id(scd41_sensor)->set_altitude_compensation((uint16_t) a);
     - priority: 600
       then:
         - switch.turn_on: peripheral_power   # rail up first (ALWAYS_ON already did at setup); settle for SCD41 POR + EPD reset
@@ -13,13 +22,17 @@ esphome:
       then:
         - if:
             condition:
-              lambda: 'return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED;'
+              lambda: 'return !id(setup_mode);'
             then:
-              - display.page.show: page_boot
-              - delay: 1s                  # panel powered at setup; settle before first render
-              - component.update: epaper_display   # boot page v1: cold start only
-            else:
-              - display.page.show: page_normal   # timer wake: no render, keep persisted sleeping image
+              - if:
+                  condition:
+                    lambda: 'return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED;'
+                  then:
+                    - display.page.show: page_boot
+                    - delay: 1s                  # panel powered at setup; settle before first render
+                    - component.update: epaper_display   # boot page v1: cold start only
+                  else:
+                    - display.page.show: page_normal   # timer wake: no render, keep persisted sleeping image
         - lambda: |-
             id(scd41_sensor)->write_command((uint16_t) 0x36f6);
         - delay: 3s
@@ -28,7 +41,12 @@ esphome:
             then:
               - component.update: scd41_sensor
               - delay: 6s
-        - deep_sleep.enter: deep_sleep_id   # failsafe: SCD41 never published (I2C fail) -> still sleep, retry next wake
+        - lambda: 'id(boot_readings_done) = true;'
+        - if:
+            condition:
+              lambda: 'return id(allow_sleep);'
+            then:
+              - deep_sleep.enter: deep_sleep_id   # failsafe: SCD41 never published (I2C fail) -> still sleep, retry next wake
 
 esp32:
   board: esp32-c3-devkitm-1
@@ -38,26 +56,49 @@ esp32:
   cpu_frequency: 80MHZ
 
 logger:
-  level: NONE   # production: no log output; DEBUG only while developing (logging costs CPU + UART power)
+  level: ${log_level}   # production NONE; DEBUG via `-s log_level DEBUG` (logging costs CPU + UART power)
 
 wifi:
   id: wifi_component
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
   fast_connect: true   # reconnect to last-known AP without a full scan
   power_save_mode: LIGHT   # modem sleeps while idle (during SCD41 single-shots); ~5x lower idle RX current
   output_power: 8.5dB      # cut TX peak current; raise toward 20dB only if range is marginal
+  reboot_timeout: 0s
   on_connect:
     then:
       - lambda: 'ESP_LOGI("boot", "wifi connected");'
 
+web_server:
+  port: 80
+  version: 3
+  local: true          # embed JS/CSS so the UI works without internet
+  include_internal: true
+  log: false           # hide Debug Log section (also stops /events log streaming)
+  ota: false           # hide OTA Update section (captive portal keeps its own OTA)
+  sorting_groups:
+    - id: grp_readings
+      name: "Current readings"
+      sorting_weight: 10
+    - id: grp_calibration
+      name: "Calibration"
+      sorting_weight: 20
+    - id: grp_mqtt
+      name: "MQTT (optional)"
+      sorting_weight: 30
+    - id: grp_device
+      name: "Device"
+      sorting_weight: 40
+
 mqtt:
   id: mqtt_client
-  broker: 192.168.178.47
+  broker: "${mqtt_broker_compile}"
   port: 1883
-  username: !secret mqtt_username
-  password: !secret mqtt_password
+  username: ""
+  password: ""
+  enable_on_boot: false
+  reboot_timeout: 0s
   discovery: true       # discovery_prefix defaults to "homeassistant" (matches HA)
+  discovery_unique_id_generator: ${discovery_uid_generator}
   birth_message:        # empty = disabled; deep-sleep must not read as unavailable
   will_message:         # empty = disabled; no LWT offline while sleeping
   shutdown_message:     # empty = disabled; clean disconnect must not clear availability
@@ -111,6 +152,22 @@ globals:
     type: uint8_t
     initial_value: '0'
     restore_value: false
+  - id: allow_sleep
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: setup_mode
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: mqtt_optional
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: boot_readings_done
+    type: bool
+    restore_value: false
+    initial_value: 'false'
 
 sensor:
   - platform: scd4x
@@ -124,14 +181,23 @@ sensor:
     co2:
       id: co2_value
       name: "${friendly_name} CO2"
+      web_server:
+        sorting_group_id: grp_readings
+        sorting_weight: 10
       filters:
         - sliding_window_moving_average:
             window_size: 3
             send_every: 3
             send_first_at: 3
+        - offset: !lambda |-
+            float off = id(co2_offset).state;
+            return isnan(off) ? 0.0f : off;
     temperature:
       id: temperature_value
       name: "${friendly_name} Temperature"
+      web_server:
+        sorting_group_id: grp_readings
+        sorting_weight: 20
       filters:
         - sliding_window_moving_average:
             window_size: 3
@@ -140,11 +206,17 @@ sensor:
     humidity:
       id: humidity_value
       name: "${friendly_name} Humidity"
+      web_server:
+        sorting_group_id: grp_readings
+        sorting_weight: 30
       filters:
         - sliding_window_moving_average:
             window_size: 3
             send_every: 3
             send_first_at: 3
+        - offset: !lambda |-
+            float off = id(hum_offset).state;
+            return isnan(off) ? 0.0f : off;
       on_value:
         then:
           - lambda: |-
@@ -160,15 +232,23 @@ sensor:
           - lambda: |-
               // SCD41 -> sleep (power_down, 0x36e0); ~0.8 uA until next wake_up.
               id(scd41_sensor)->write_command((uint16_t) 0x36e0);
-          - display.page.show: page_normal
-          - component.update: epaper_display   # single render (persists); update() blocks on BUSY
+          - if:
+              condition:
+                lambda: 'return !id(setup_mode);'
+              then:
+                - display.page.show: page_normal
+                - component.update: epaper_display   # single render (persists); update() blocks on BUSY
           - lambda: |-
               float wake_s = millis() / 1000.0f;
               ESP_LOGI("wake", "wake duration %.1f s", wake_s);
               id(wake_duration).publish_state(wake_s);
           - delay: 500ms
-          - switch.turn_off: peripheral_power
-          - deep_sleep.enter: deep_sleep_id
+          - if:
+              condition:
+                lambda: 'return id(allow_sleep);'
+              then:
+                - switch.turn_off: peripheral_power
+                - deep_sleep.enter: deep_sleep_id
   - platform: template
     id: wake_duration
     name: "${friendly_name} Wake Duration"
@@ -178,6 +258,9 @@ sensor:
     state_class: measurement
     entity_category: diagnostic
     update_interval: never
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 30
   - platform: adc
     id: battery_voltage
     pin: GPIO3
@@ -188,6 +271,9 @@ sensor:
     device_class: voltage
     state_class: measurement
     accuracy_decimals: 2
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 25
     filters:
       - multiply: 2.0   # battery-management board presents VBAT/2; scale back to cell volts
       - sliding_window_moving_average:
@@ -227,6 +313,145 @@ sensor:
     state_class: measurement
     accuracy_decimals: 0
     update_interval: never
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 20
+
+number:
+  - platform: template
+    id: co2_offset
+    name: "CO2 offset"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -2000
+    max_value: 2000
+    step: 1
+    initial_value: 0
+    unit_of_measurement: ppm
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 10
+    set_action:
+      then:
+        - lambda: 'id(co2_offset).publish_state(x);'
+        - script.execute: apply_calibration
+  - platform: template
+    id: temp_offset
+    name: "Temperature offset"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -10
+    max_value: 10
+    step: 0.1
+    initial_value: 1.0
+    unit_of_measurement: "°C"
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 20
+    set_action:
+      then:
+        - lambda: 'id(temp_offset).publish_state(x);'
+        - script.execute: apply_calibration
+  - platform: template
+    id: hum_offset
+    name: "Humidity offset"
+    internal: true
+    entity_category: config
+    restore_value: true
+    min_value: -20
+    max_value: 20
+    step: 0.5
+    initial_value: 0
+    unit_of_measurement: "%"
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 30
+    set_action:
+      then:
+        - lambda: 'id(hum_offset).publish_state(x);'
+        - script.execute: apply_calibration
+  - platform: template
+    id: altitude
+    name: "Altitude"
+    internal: true
+    entity_category: config
+    restore_value: true
+    min_value: 0
+    max_value: 3000
+    step: 10
+    initial_value: 500
+    unit_of_measurement: m
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 40
+    set_action:
+      then:
+        - lambda: 'id(altitude).publish_state(x);'
+        - script.execute: apply_calibration
+
+script:
+  - id: apply_calibration
+    mode: restart
+    then:
+      - wait_until:
+          condition:
+            lambda: 'return id(boot_readings_done);'
+          timeout: 60s
+      - delay: 1s
+      - lambda: 'id(scd41_sensor)->write_command((uint16_t) 0x36f6);'
+      - delay: 1s
+      - repeat:
+          count: 3
+          then:
+            - lambda: |-
+                auto *s = id(scd41_sensor);
+                float t = id(temp_offset).state;
+                if (!isnan(t)) {
+                  s->set_temperature_offset(t);
+                  s->write_command((uint16_t) 0x241d, (uint16_t) (t * (65536.0f / 175.0f)));
+                }
+                float a = id(altitude).state;
+                if (!isnan(a)) {
+                  s->set_altitude_compensation((uint16_t) a);
+                  s->write_command((uint16_t) 0x2427, (uint16_t) a);
+                }
+            - component.update: scd41_sensor
+            - delay: 6s
+
+text:
+  - platform: template
+    id: room_label
+    name: "Room label"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    mode: TEXT
+    max_length: 14
+    initial_value: "${floor_label}"
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 10
+    set_action:
+      then:
+        - lambda: 'id(room_label).publish_state(x);'
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    internal: true
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 90
 
 switch:
   - platform: gpio
@@ -235,6 +460,9 @@ switch:
     pin: GPIO20
     restore_mode: ALWAYS_ON   # HIGH at setup (HARDWARE 800) -> SCD41 + EPD rail up before display init (PROCESSOR 400)
     internal: true            # firmware-managed power gate, not an HA entity
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 80
 
 display:
   - platform: waveshare_epaper
@@ -251,8 +479,8 @@ display:
     pages:
       - id: page_boot
         lambda: |-
-          ESP_LOGI("screen", "boot wifi=%d mqtt=%d", id(wifi_component).is_connected(), id(mqtt_client).is_connected());
-          it.printf(0, 0, id(font_label), "${floor_label}");
+          ESP_LOGI("screen", "boot wifi=%d mqtt=%d optional=%d", id(wifi_component).is_connected(), id(mqtt_client).is_connected(), id(mqtt_optional));
+          it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
           {
             float bp = id(battery_percent).state;
             it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
@@ -269,15 +497,21 @@ display:
             it.print(200, 70, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca");
           }
           it.print(0, 100, id(font_label), "MQTT...");
-          if (id(mqtt_client).is_connected()) {
-            it.print(200, 100, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca");
-          }
+          if (id(mqtt_client).is_connected() || id(mqtt_optional)) { it.print(200, 100, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca"); }
           it.print(0, 130, id(font_label), "SENSOR...");
           // SENSOR check omitted: single-shot results arrive later; page flips to normal on first reading.
+          if (id(wifi_component).is_connected()) {
+            auto ips = id(wifi_component).wifi_sta_ip_addresses();
+            if (!ips.empty()) {
+              char ip_buf[40];
+              ips[0].str_to(ip_buf);
+              it.printf(0, 176, id(font_label), "%s", ip_buf);
+            }
+          }
       - id: page_normal
         lambda: |-
           ESP_LOGI("screen", "screen co2=%.0f ppm temp=%.2f C hum=%.2f %%", id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
-          it.printf(0, 0, id(font_label), "${floor_label}");
+          it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
           {
             float bp = id(battery_percent).state;
             it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
@@ -312,9 +546,14 @@ display:
 deep_sleep:
   id: deep_sleep_id
   sleep_duration: 5min
-  run_duration: 60s   # failsafe: measurement + render ≈ 30 s; guarantees sleep even if wifi/mqtt/sensor hangs
+  run_duration: 120s   # normal cap: measurement + render ≈ 35 s; gift setup overlay raises to 30 min while unprovisioned
 
 interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (!id(setup_mode))
+            id(allow_sleep) = id(wifi_component).is_connected();
   - interval: 1s
     then:
       - if:
@@ -325,7 +564,8 @@ interval:
                 // Main-loop poll: re-render the boot page when wifi/mqtt state changes.
                 // (mqtt.on_connect runs on the network task — unsafe to render from there.)
                 uint8_t now = (id(wifi_component).is_connected() ? 1 : 0)
-                            | (id(mqtt_client).is_connected() ? 2 : 0);
+                            | (id(mqtt_client).is_connected() ? 2 : 0)
+                            | (id(mqtt_optional) ? 4 : 0);
                 if (now != id(boot_shown)) {
                   id(boot_shown) = now;
                   id(epaper_display).update();

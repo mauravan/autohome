@@ -26,8 +26,10 @@ ids the dashboard already references (`sensor.top_floor_co2`, `_temperature`,
 
 | File | Purpose |
 |---|---|
-| `co2-node-common.yaml` | Shared package: ESP32, WiFi, MQTT, SCD41, e-paper, deep sleep |
-| `top.yaml` / `mid.yaml` / `bottom.yaml` | Per-floor identity + `!include` of the package |
+| `co2-node-common.yaml` | Shared package: ESP32, WiFi AP/portal, web UI, MQTT, SCD41, e-paper, deep sleep |
+| `co2-node-home.yaml` | Home package: station WiFi + home MQTT/offsets defaults (merged with common) |
+| `gift.yaml` | Gift build: generic MAC-suffixed identity, unprovisioned defaults, no station creds |
+| `top.yaml` / `mid.yaml` / `bottom.yaml` | Per-floor identity + `!include` of common + home packages |
 | `secrets.yaml.example` | Template for git-ignored `secrets.yaml` |
 | `README.md` | This file |
 
@@ -85,8 +87,9 @@ esphome config top.yaml                # expect "Configuration is valid"
 esphome run top.yaml --device /dev/ttyACM0
 ```
 
-`secrets.yaml` is git-ignored and never committed. Flash over USB serial (the node is
-MQTT-only — no `api:`/`ota:` — so no native-API handshake cost during its short wake).
+`secrets.yaml` is git-ignored and never committed. Flash over USB serial. No native
+API (`api:`) is configured — HA integration is MQTT; the node also serves a local web
+UI on port 80 (plus the captive portal for WiFi setup, which also exposes HTTP OTA).
 
 Serial monitor should show, in order: boot → `WiFi connected` → 5× SCD41 single-shot
 measurements (~5 s each) → CO₂/temp/humidity mean logged → `MQTT connected` → display
@@ -151,7 +154,33 @@ Estimates, not measured. Per 5-min wake after the optimizations above:
 4. **Battery monitoring.** Add an ADC + high-impedance divider (GPIO-gated so it doesn't leak during sleep) and publish voltage so HA can alert before the cell dies.
 5. **ASC note.** `automatic_self_calibration: true` *does* run in single-shot mode, but it assumes a ~5 min measurement interval (SCD41 datasheet §3.10.5) and weekly ~400 ppm fresh-air exposure. Extending `sleep_duration` slows ASC proportionally; for long cadences consider periodic FRC against a reference instead.
 
-## Contingencies
+## Gifting a sensor
+
+Build/flash `gift.yaml` over USB; for a clean identity run
+`python -m esptool --chip esp32c3 -p /dev/ttyACM0 erase_flash` first. To gift an
+existing node instead: press `Reset to setup` in its web UI before unplugging (clears
+MQTT creds/offsets and sets `provisioned=false`).
+
+Recipient flow: join `co2-setup` / `co2setup`, open `192.168.4.1`, pick the home WiFi
+(2.4 GHz/WPA2), reconnect the phone to the home WiFi, open the IP shown on the screen,
+set offsets/room label; MQTT is optional (press 'Save MQTT settings' to apply it
+without restarting), then press `Finish setup`.
+
+MQTT: leave broker empty for local-only; `homeassistant.local` works when Mosquitto runs
+on the HA host, otherwise enter the broker IP; create broker credentials in HA. Entities
+arrive via discovery; topics use `co2-sensor-<mac>/…`.
+
+Settings semantics: CO2/humidity offsets are additive; temperature offset is the SCD41
+internal offset (also affects RH); altitude is pressure compensation;
+offset changes apply immediately (the SCD41 is re-read, ~20 s) and MQTT settings apply
+on 'Save MQTT settings' or restart; setup mode stays awake up to 30 min.
+
+Battery note: press `Finish setup` to stop the 30-minute setup window.
+
+Security: setup AP is WPA2 with the published password; the web UI on port 80 has no
+authentication; treat it as LAN-local. The UI also lists the internal
+`Peripheral Power` switch (because `include_internal` is on); leave it on.
+
 
 - Broker host `homeassistant.local` resolves via mDNS from the ESP. On `MQTT
   disconnected` / DNS failure, substitute the hub IP in `mqtt.broker`.

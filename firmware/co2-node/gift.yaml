@@ -1,0 +1,14 @@
+substitutions:
+  device_name: "co2-sensor"
+  friendly_name: "CO2 Sensor"
+  floor_label: "CO2 SENSOR"
+  mqtt_broker_compile: "homeassistant.local"
+  discovery_uid_generator: "mac"
+packages:
+  hardware: !include co2-node-common.yaml
+  gift: !include co2-node-gift.yaml
+esphome:
+  name: "${device_name}"
+  friendly_name: "${friendly_name}"
+  name_add_mac_suffix: true
+  comment: ""
