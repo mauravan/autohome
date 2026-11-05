@@ -9,6 +9,12 @@ esphome:
             if (!isnan(t)) id(scd41_sensor)->set_temperature_offset(t);
             float a = id(altitude).state;
             if (!isnan(a)) id(scd41_sensor)->set_altitude_compensation((uint16_t) a);
+    - priority: 650
+      then:
+        - lambda: |-
+            float m = id(sleep_interval).state;
+            if (!isnan(m) && m >= 1.0f && m <= 120.0f)
+              id(deep_sleep_id).set_sleep_duration((uint32_t) (m * 60000.0f));
     - priority: 600
       then:
         - switch.turn_on: peripheral_power   # rail up first (ALWAYS_ON already did at setup); settle for SCD41 POR + EPD reset
@@ -320,7 +326,7 @@ sensor:
 number:
   - platform: template
     id: co2_offset
-    name: "CO2 offset"
+    name: "ppm · CO2 offset"
     internal: true
     entity_category: config
     optimistic: true
@@ -329,7 +335,7 @@ number:
     max_value: 2000
     step: 1
     initial_value: 0
-    unit_of_measurement: ppm
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
     mode: slider
     web_server:
       sorting_group_id: grp_calibration
@@ -340,7 +346,7 @@ number:
         - script.execute: apply_calibration
   - platform: template
     id: temp_offset
-    name: "Temperature offset"
+    name: "°C · Temperature offset"
     internal: true
     entity_category: config
     optimistic: true
@@ -349,7 +355,7 @@ number:
     max_value: 10
     step: 0.1
     initial_value: 1.0
-    unit_of_measurement: "°C"
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
     mode: slider
     web_server:
       sorting_group_id: grp_calibration
@@ -360,7 +366,7 @@ number:
         - script.execute: apply_calibration
   - platform: template
     id: hum_offset
-    name: "Humidity offset"
+    name: "% · Humidity offset"
     internal: true
     entity_category: config
     restore_value: true
@@ -368,7 +374,7 @@ number:
     max_value: 20
     step: 0.5
     initial_value: 0
-    unit_of_measurement: "%"
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
     mode: slider
     web_server:
       sorting_group_id: grp_calibration
@@ -379,7 +385,7 @@ number:
         - script.execute: apply_calibration
   - platform: template
     id: altitude
-    name: "Altitude"
+    name: "m · Altitude"
     internal: true
     entity_category: config
     restore_value: true
@@ -387,7 +393,7 @@ number:
     max_value: 3000
     step: 10
     initial_value: 500
-    unit_of_measurement: m
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
     mode: slider
     web_server:
       sorting_group_id: grp_calibration
@@ -396,6 +402,27 @@ number:
       then:
         - lambda: 'id(altitude).publish_state(x);'
         - script.execute: apply_calibration
+  - platform: template
+    id: sleep_interval
+    name: "min · Sleep interval"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: 1
+    max_value: 120
+    step: 1
+    initial_value: 5
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: box
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 35
+    set_action:
+      then:
+        - lambda: |-
+            float m = x < 1.0f ? 1.0f : (x > 120.0f ? 120.0f : x);
+            id(deep_sleep_id).set_sleep_duration((uint32_t) (m * 60000.0f));
 
 script:
   - id: apply_calibration
