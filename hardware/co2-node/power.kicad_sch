@@ -1,0 +1,7 @@
+(kicad_sch (version 20250114) (generator "eeschema") (generator_version "9.0")
+  (uuid "3317b054-3e49-441c-ba28-0b6aef09d469")
+  (paper "A3")
+  (title_block (title "CO2 node rev A - Power: USB-C, BQ24074, TPS7A26, protection, gate, divider") (date "2026-11-05") (rev "A") (company "autohome"))
+  (text "SHEET: power (power.kicad_sch)\nPhase 2: full netlist per hardware/co2-node/README.md.\nDo not hand-edit: regenerate via tools/gen_kicad.py."
+    (at 30 30 0) (effects (font (size 2 2))) (uuid "69740349-ec99-4a0c-9d43-c1d4669bdc5c"))
+)

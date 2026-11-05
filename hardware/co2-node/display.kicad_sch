@@ -1,0 +1,7 @@
+(kicad_sch (version 20250114) (generator "eeschema") (generator_version "9.0")
+  (uuid "563bc423-a83a-499f-b27d-d3e1c374992b")
+  (paper "A3")
+  (title_block (title "CO2 node rev A - Display: FPC-24 + WeAct boost (SSD1681), 3V3-fed, no ME6216") (date "2026-11-05") (rev "A") (company "autohome"))
+  (text "SHEET: display (display.kicad_sch)\nPhase 2: full netlist per hardware/co2-node/README.md.\nDo not hand-edit: regenerate via tools/gen_kicad.py."
+    (at 30 30 0) (effects (font (size 2 2))) (uuid "3a8d2653-6e78-46a0-9d5e-de3f8778103b"))
+)

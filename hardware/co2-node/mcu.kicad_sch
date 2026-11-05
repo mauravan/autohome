@@ -1,0 +1,7 @@
+(kicad_sch (version 20250114) (generator "eeschema") (generator_version "9.0")
+  (uuid "d9040b9a-912d-42e8-a51e-900823582b55")
+  (paper "A3")
+  (title_block (title "CO2 node rev A - MCU: ESP32-C3-MINI-1-N4, USB, BOOT/RESET, decoupling, test pads") (date "2026-11-05") (rev "A") (company "autohome"))
+  (text "SHEET: mcu (mcu.kicad_sch)\nPhase 2: full netlist per hardware/co2-node/README.md.\nDo not hand-edit: regenerate via tools/gen_kicad.py."
+    (at 30 30 0) (effects (font (size 2 2))) (uuid "dc41f944-19fe-4514-b365-5244f1af08c5"))
+)

@@ -1,0 +1,7 @@
+(kicad_sch (version 20250114) (generator "eeschema") (generator_version "9.0")
+  (uuid "22414227-1932-4ff2-84c7-59f7964a7954")
+  (paper "A3")
+  (title_block (title "CO2 node rev A - Sensor: SCD41-D-R2, ferrite, pull-ups, DNC float") (date "2026-11-05") (rev "A") (company "autohome"))
+  (text "SHEET: sensor (sensor.kicad_sch)\nPhase 2: full netlist per hardware/co2-node/README.md.\nDo not hand-edit: regenerate via tools/gen_kicad.py."
+    (at 30 30 0) (effects (font (size 2 2))) (uuid "28b8c497-2609-4697-9a1e-6b6400b4f5f8"))
+)

@@ -1,0 +1,7 @@
+(kicad_sch (version 20250114) (generator "eeschema") (generator_version "9.0")
+  (uuid "f1007772-4e2a-4ee9-9db3-4f6737a4526c")
+  (paper "A3")
+  (title_block (title "CO2 node rev A - Connectors: 18650 holder, NTC, test pads, mounting, label") (date "2026-11-05") (rev "A") (company "autohome"))
+  (text "SHEET: connectors (connectors.kicad_sch)\nPhase 2: full netlist per hardware/co2-node/README.md.\nDo not hand-edit: regenerate via tools/gen_kicad.py."
+    (at 30 30 0) (effects (font (size 2 2))) (uuid "02c9e2ec-b225-4208-90a1-0f17f7c13bfa"))
+)

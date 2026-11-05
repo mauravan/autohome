@@ -1,0 +1,7 @@
+(kicad_pro (version 1)
+  (general)
+  (paper "A3")
+  (title_block (title "CO2 sensor node rev A") (date "2026-11-05") (rev "A") (company "autohome"))
+  (board (paper "A3"))
+  (cvpcb (equivalence false))
+)
