@@ -1,0 +1,4 @@
+
+# KiCad/python artifacts
+__pycache__/
+*.pyc
