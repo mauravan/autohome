@@ -1,0 +1,11 @@
+(footprint "TESTPAD" (version 20241229) (generator "co2-node-gen")
+  (descr "test pad 1.0mm")
+  (tags "co2-node")
+  (attr smd)
+  (pad "1" smd circle (at 0 0) (size 1 1) (layers F.Cu F.Mask) (uuid "319ec250-8208-494b-8df6-1d727211ce65"))
+  (fp_line (start -1.5 -1.5) (end 1.5 -1.5) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "96bda4fb-1ec6-4aaa-94df-51f059f745ef"))
+  (fp_line (start 1.5 -1.5) (end 1.5 1.5) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "6f2dc74c-e08d-484a-b622-72c3c992a48c"))
+  (fp_line (start 1.5 1.5) (end -1.5 1.5) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "5e596863-960b-48f8-8541-58a578976c93"))
+  (fp_line (start -1.5 1.5) (end -1.5 -1.5) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "f80ecf20-6421-4671-a8a3-982d635f04f4"))
+
+)

@@ -1,0 +1,12 @@
+(footprint "FUSE_1206" (version 20241229) (generator "co2-node-gen")
+  (descr "Fuse 1206")
+  (tags "co2-node")
+  (attr smd)
+  (pad "1" smd rect (at -1.6 0) (size 1.2 1.6) (layers F.Cu F.Paste F.Mask) (uuid "8eb32534-ab79-4d83-bb06-aab369181203"))
+  (pad "2" smd rect (at 1.6 0) (size 1.2 1.6) (layers F.Cu F.Paste F.Mask) (uuid "bf1f2a0b-3050-447d-8a60-c27e6de6e23f"))
+  (fp_line (start -2.75 -1.75) (end 2.75 -1.75) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "0948dd3a-ae93-40e3-a34c-e7040a5bf269"))
+  (fp_line (start 2.75 -1.75) (end 2.75 1.75) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "d6d92e90-687a-42d8-803e-8304e8a94eac"))
+  (fp_line (start 2.75 1.75) (end -2.75 1.75) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "8c6f39ec-ebd4-4a42-85c0-87a8b27814d2"))
+  (fp_line (start -2.75 1.75) (end -2.75 -1.75) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "ec81ca78-3ea8-4350-85fe-d4545646eb91"))
+
+)

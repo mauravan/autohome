@@ -1,0 +1,12 @@
+(footprint "C_0603" (version 20241229) (generator "co2-node-gen")
+  (descr "C 0603")
+  (tags "co2-node")
+  (attr smd)
+  (pad "1" smd rect (at -0.8 0) (size 0.9 0.9) (layers F.Cu F.Paste F.Mask) (uuid "7b9741ad-da0c-4010-8108-21c8e4059e60"))
+  (pad "2" smd rect (at 0.8 0) (size 0.9 0.9) (layers F.Cu F.Paste F.Mask) (uuid "a0458b5b-a516-46a2-994e-fdc24a1cc76f"))
+  (fp_line (start -2.1 -1.3) (end 2.1 -1.3) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "3bf8c43e-2d35-478e-9d34-5315dfd5d8ac"))
+  (fp_line (start 2.1 -1.3) (end 2.1 1.3) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "510834cf-fa8e-49f5-af4b-bc58ce7123f0"))
+  (fp_line (start 2.1 1.3) (end -2.1 1.3) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "b267d885-6b07-4539-a0af-ad5eaf438759"))
+  (fp_line (start -2.1 1.3) (end -2.1 -1.3) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "a55f2063-b6dc-44a9-a57f-ec21795e8198"))
+
+)

@@ -1,0 +1,11 @@
+(footprint "SCD41-DNC" (version 20241229) (generator "co2-node-gen")
+  (descr "SCD41 DNC floating island")
+  (tags "co2-node")
+  (attr smd)
+  (pad "1" smd rect (at 0 0) (size 2.5 2.5) (layers F.Cu) (uuid "7f6f3653-4bc9-4de4-b5fa-0cc3cb20529b"))
+  (fp_line (start -2.25 -2.25) (end 2.25 -2.25) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "d2b55833-7485-42a3-8961-a84962641dec"))
+  (fp_line (start 2.25 -2.25) (end 2.25 2.25) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "c348e4cf-fc4a-4937-9755-4514b999753f"))
+  (fp_line (start 2.25 2.25) (end -2.25 2.25) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "b24ae649-b17f-4e98-aec5-d6ad953248aa"))
+  (fp_line (start -2.25 2.25) (end -2.25 -2.25) (stroke (width 0.05) (type solid)) (layer "F.CrtYd") (uuid "d7e77b5c-960f-461a-b21c-61831fe76169"))
+
+)
