@@ -1,0 +1,27 @@
+substitutions:
+  web_user: "admin"
+  web_password: !secret web_password
+
+web_server:
+  port: 80
+  version: 3
+  local: true
+  include_internal: true
+  log: false
+  ota: false
+  auth:
+    username: "${web_user}"
+    password: "${web_password}"
+  sorting_groups:
+    - id: grp_readings
+      name: "Current readings"
+      sorting_weight: 10
+    - id: grp_calibration
+      name: "Calibration"
+      sorting_weight: 20
+    - id: grp_mqtt
+      name: "MQTT (optional)"
+      sorting_weight: 30
+    - id: grp_device
+      name: "Device"
+      sorting_weight: 40

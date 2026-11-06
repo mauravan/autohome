@@ -1,9 +1,10 @@
 # Battery CO₂ Sensor Node (ESP32 + SCD41 + WeAct e-paper)
 
-Battery-powered per-floor CO₂ / temperature / humidity node. Wakes every 5 minutes,
-takes 5× SCD41 single-shot measurements (~5 s each, averaged via
-`sliding_window_moving_average` with `window_size: 5` / `send_every: 5` /
-`send_first_at: 5`, so only the 5-sample mean is published), fully refreshes a WeAct
+Battery-powered per-floor CO₂ / temperature / humidity node. Wakes every 15 minutes
+(product default; home floors currently run 5 min), takes 3× SCD41 single-shot
+measurements (~6 s apart, averaged via `sliding_window_moving_average` with
+`window_size: 3` / `send_every: 3` / `send_first_at: 3`, so only the 3-sample
+mean is published), fully refreshes a WeAct
 1.54" B/W e-paper (SSD1681), publishes to the Mosquitto broker via ESPHome MQTT
 discovery, then deep-sleeps. Battery is sampled 3× at boot and averaged via
 `sliding_window_moving_average` (window 3), matching the SCD41 channels; the averaged

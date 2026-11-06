@@ -1,0 +1,589 @@
+substitutions:
+  log_level: "NONE"
+  ota_password: !secret ota_password
+  web_user: "admin"
+  web_password: !secret web_password
+  ap_ssid: "co2-setup"
+  discovery_uid_generator: "legacy"
+esphome:
+  on_boot:
+    - priority: 650
+      then:
+        - lambda: |-
+            float t = id(temp_offset).state;
+            if (!isnan(t)) id(scd41_sensor)->set_temperature_offset(t);
+            float a = id(altitude).state;
+            if (!isnan(a)) id(scd41_sensor)->set_altitude_compensation((uint16_t) a);
+    - priority: 650
+      then:
+        - lambda: |-
+            float m = id(sleep_interval).state;
+            if (!isnan(m) && m >= 1.0f && m <= 120.0f)
+              id(deep_sleep_id).set_sleep_duration((uint32_t) (m * 60000.0f));
+    - priority: 600
+      then:
+        - switch.turn_on: peripheral_power   # rail up first (ALWAYS_ON already did at setup); settle for SCD41 POR + EPD reset
+        - delay: 1s
+        - repeat:
+            count: 3
+            then:
+              - component.update: battery_voltage   # 3 ADC reads, averaged via sliding_window_moving_average (window 3)
+              - delay: 100ms
+    - priority: 100
+      then:
+        - if:
+            condition:
+              lambda: 'return !id(setup_mode);'
+            then:
+              - if:
+                  condition:
+                    lambda: 'return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED;'
+                  then:
+                    - display.page.show: page_boot
+                    - delay: 1s                  # panel powered at setup; settle before first render
+                    - component.update: epaper_display   # boot page v1: cold start only
+                  else:
+                    - display.page.show: page_normal   # timer wake: no render, keep persisted sleeping image
+        - lambda: |-
+            id(scd41_sensor)->write_command((uint16_t) 0x36f6);
+        - delay: 3s
+        - repeat:
+            count: 3
+            then:
+              - component.update: scd41_sensor
+              - delay: 6s
+        - lambda: 'id(boot_readings_done) = true;'
+        - if:
+            condition:
+              lambda: 'return id(allow_sleep);'
+            then:
+              - deep_sleep.enter: deep_sleep_id   # failsafe: SCD41 never published (I2C fail) -> still sleep, retry next wake
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework:
+    type: arduino
+  cpu_frequency: 80MHZ
+
+logger:
+  level: ${log_level}
+
+safe_mode:
+
+ota:
+  - platform: esphome
+    password: "${ota_password}"   # production NONE; DEBUG via `-s log_level DEBUG` (logging costs CPU + UART power)
+
+wifi:
+  id: wifi_component
+  fast_connect: true   # reconnect to last-known AP without a full scan
+  power_save_mode: LIGHT   # modem sleeps while idle (during SCD41 single-shots); ~5x lower idle RX current
+  output_power: 8.5dB      # cut TX peak current; raise toward 20dB only if range is marginal
+  reboot_timeout: 0s
+  on_connect:
+    then:
+      - lambda: 'ESP_LOGI("boot", "wifi connected");'
+
+mqtt:
+  id: mqtt_client
+  broker: "${mqtt_broker_compile}"
+  port: 1883
+  username: ""
+  password: ""
+  enable_on_boot: false
+  reboot_timeout: 0s
+  discovery: true       # discovery_prefix defaults to "homeassistant" (matches HA)
+  discovery_unique_id_generator: ${discovery_uid_generator}
+  birth_message:        # empty = disabled; deep-sleep must not read as unavailable
+  will_message:         # empty = disabled; no LWT offline while sleeping
+  shutdown_message:     # empty = disabled; clean disconnect must not clear availability
+  on_connect:
+    then:
+      - lambda: 'ESP_LOGI("boot", "mqtt connected");'
+
+i2c:
+  sda: GPIO1
+  scl: GPIO21   # was GPIO3; freed GPIO3 (ADC1_CH3) for the battery sense line
+  scan: false   # no boot-time bus probe: saves a few transactions + delay
+  sda_pullup_enabled: false   # breakout 10k pulls to SCD41 VDD rail; internal pulls would back-power the sensor while the rail is off
+  scl_pullup_enabled: false
+
+spi:
+  clk_pin: GPIO4
+  mosi_pin: GPIO6
+
+font:
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_label
+    size: 16
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_co2
+    size: 44
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_temp
+    size: 44
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_humid
+    size: 44
+
+  - file: "fonts/MaterialIcons-Regular.ttf"
+    id: font_icons
+    size: 28
+    glyphs:
+      - "\U0000e7b0"  # co2
+      - "\U0000e1ff"  # device_thermostat (thermometer)
+      - "\U0000e798"  # water_drop
+  - file: "fonts/MaterialIcons-Regular.ttf"
+    id: font_status
+    size: 16
+    glyphs:
+      - "\U0000e5ca"  # check — connected
+      - "\U0000e1a4"  # battery_full
+      - "\U0000e19c"  # battery_alert
+      - "\U0000ebdd"  # battery_3_bar — half
+
+globals:
+  - id: boot_shown
+    type: uint8_t
+    initial_value: '0'
+    restore_value: false
+  - id: allow_sleep
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: setup_mode
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: mqtt_optional
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: boot_readings_done
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+
+sensor:
+  - platform: scd4x
+    id: scd41_sensor
+    address: 0x62
+    update_interval: never
+    automatic_self_calibration: true
+    altitude_compensation: 500MAMSL
+    temperature_offset: 1°C
+    measurement_mode: single_shot
+    co2:
+      id: co2_value
+      name: "${friendly_name} CO2"
+      web_server:
+        sorting_group_id: grp_readings
+        sorting_weight: 10
+      filters:
+        - sliding_window_moving_average:
+            window_size: 3
+            send_every: 3
+            send_first_at: 3
+        - offset: !lambda |-
+            float off = id(co2_offset).state;
+            return isnan(off) ? 0.0f : off;
+    temperature:
+      id: temperature_value
+      name: "${friendly_name} Temperature"
+      web_server:
+        sorting_group_id: grp_readings
+        sorting_weight: 20
+      filters:
+        - sliding_window_moving_average:
+            window_size: 3
+            send_every: 3
+            send_first_at: 3
+    humidity:
+      id: humidity_value
+      name: "${friendly_name} Humidity"
+      web_server:
+        sorting_group_id: grp_readings
+        sorting_weight: 30
+      filters:
+        - sliding_window_moving_average:
+            window_size: 3
+            send_every: 3
+            send_first_at: 3
+        - offset: !lambda |-
+            float off = id(hum_offset).state;
+            return isnan(off) ? 0.0f : off;
+      on_value:
+        then:
+          - lambda: |-
+              ESP_LOGI("mqtt_tx", "mqtt co2=%.0f ppm temp=%.2f C hum=%.2f %% (auto-published to ${device_name}/sensor/.../state)",
+                id(co2_value).state, id(temperature_value).state, x);
+          - lambda: |-
+              // Battery was averaged at boot (before MQTT connected); re-publish the averaged
+              // level now that the broker is up. battery_percent has no filter, so publish_state
+              // goes straight to the MQTT callback. (battery_voltage is republished by the MQTT
+              // resend-on-connect path, which bypasses the sensor filter.)
+              if (!isnan(id(battery_percent).state))
+                id(battery_percent).publish_state(id(battery_percent).state);
+          - lambda: |-
+              // SCD41 -> sleep (power_down, 0x36e0); ~0.8 uA until next wake_up.
+              id(scd41_sensor)->write_command((uint16_t) 0x36e0);
+          - if:
+              condition:
+                lambda: 'return !id(setup_mode);'
+              then:
+                - display.page.show: page_normal
+                - component.update: epaper_display   # single render (persists); update() blocks on BUSY
+          - lambda: |-
+              float wake_s = millis() / 1000.0f;
+              ESP_LOGI("wake", "wake duration %.1f s", wake_s);
+              id(wake_duration).publish_state(wake_s);
+          - delay: 500ms
+          - if:
+              condition:
+                lambda: 'return id(allow_sleep);'
+              then:
+                - switch.turn_off: peripheral_power
+                - deep_sleep.enter: deep_sleep_id
+  - platform: template
+    id: wake_duration
+    name: "${friendly_name} Wake Duration"
+    unit_of_measurement: "s"
+    accuracy_decimals: 1
+    device_class: duration
+    state_class: measurement
+    entity_category: diagnostic
+    update_interval: never
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 30
+  - platform: adc
+    id: battery_voltage
+    pin: GPIO3
+    attenuation: 12db
+    update_interval: never
+    name: "${friendly_name} Battery Voltage"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 25
+    filters:
+      - multiply: 2.0   # battery-management board presents VBAT/2; scale back to cell volts
+      - sliding_window_moving_average:
+          window_size: 3
+          send_every: 3
+          send_first_at: 3
+    on_value:
+      then:
+        - lambda: |-
+            // Li-ion OCV -> SoC, piecewise-linear (resting cell voltage). Linear 3.6-4.2 V was wrong:
+            // a Li-ion rests at ~82 % at 4.0 V and ~43 % at 3.8 V, not 67 % / 33 %.
+            static const float V_TBL[] = {3.00f, 3.55f, 3.68f, 3.74f, 3.77f, 3.79f, 3.82f, 3.87f, 3.92f, 3.98f, 4.06f, 4.20f};
+            static const float P_TBL[] = {0.0f,  5.0f, 10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f, 70.0f, 80.0f, 90.0f, 100.0f};
+            const int N = (int) (sizeof(V_TBL) / sizeof(V_TBL[0]));
+            float v = x;
+            float pct = 0.0f;
+            if (v <= V_TBL[0]) {
+              pct = 0.0f;
+            } else if (v >= V_TBL[N - 1]) {
+              pct = 100.0f;
+            } else {
+              for (int i = 0; i < N - 1; i++) {
+                if (v >= V_TBL[i] && v <= V_TBL[i + 1]) {
+                  float t = (v - V_TBL[i]) / (V_TBL[i + 1] - V_TBL[i]);
+                  pct = P_TBL[i] + t * (P_TBL[i + 1] - P_TBL[i]);
+                  break;
+                }
+              }
+            }
+            id(battery_percent).publish_state(pct);
+            ESP_LOGI("battery", "cell %.3f V -> %.1f %%", v, pct);
+  - platform: template
+    id: battery_percent
+    name: "${friendly_name} Battery"
+    unit_of_measurement: "%"
+    device_class: battery
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: never
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 20
+
+number:
+  - platform: template
+    id: co2_offset
+    name: "ppm · CO2 offset"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -2000
+    max_value: 2000
+    step: 1
+    initial_value: 0
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 10
+    set_action:
+      then:
+        - lambda: 'id(co2_offset).publish_state(x);'
+        - script.execute: apply_calibration
+  - platform: template
+    id: temp_offset
+    name: "°C · Temperature offset"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -10
+    max_value: 10
+    step: 0.1
+    initial_value: 1.0
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 20
+    set_action:
+      then:
+        - lambda: 'id(temp_offset).publish_state(x);'
+        - script.execute: apply_calibration
+  - platform: template
+    id: hum_offset
+    name: "% · Humidity offset"
+    internal: true
+    entity_category: config
+    restore_value: true
+    min_value: -20
+    max_value: 20
+    step: 0.5
+    initial_value: 0
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 30
+    set_action:
+      then:
+        - lambda: 'id(hum_offset).publish_state(x);'
+        - script.execute: apply_calibration
+  - platform: template
+    id: altitude
+    name: "m · Altitude"
+    internal: true
+    entity_category: config
+    restore_value: true
+    min_value: 0
+    max_value: 3000
+    step: 10
+    initial_value: 1500
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 40
+    set_action:
+      then:
+        - lambda: 'id(altitude).publish_state(x);'
+        - script.execute: apply_calibration
+  - platform: template
+    id: sleep_interval
+    name: "min · Sleep interval"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: 1
+    max_value: 120
+    step: 1
+    initial_value: 15
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: box
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 35
+    set_action:
+      then:
+        - lambda: |-
+            float m = x < 1.0f ? 1.0f : (x > 120.0f ? 120.0f : x);
+            id(deep_sleep_id).set_sleep_duration((uint32_t) (m * 60000.0f));
+
+script:
+  - id: apply_calibration
+    mode: restart
+    then:
+      - wait_until:
+          condition:
+            lambda: 'return id(boot_readings_done);'
+          timeout: 60s
+      - delay: 1s
+      - lambda: 'id(scd41_sensor)->write_command((uint16_t) 0x36f6);'
+      - delay: 1s
+      - repeat:
+          count: 3
+          then:
+            - lambda: |-
+                auto *s = id(scd41_sensor);
+                float t = id(temp_offset).state;
+                if (!isnan(t)) {
+                  s->set_temperature_offset(t);
+                  s->write_command((uint16_t) 0x241d, (uint16_t) (t * (65536.0f / 175.0f)));
+                }
+                float a = id(altitude).state;
+                if (!isnan(a)) {
+                  s->set_altitude_compensation((uint16_t) a);
+                  s->write_command((uint16_t) 0x2427, (uint16_t) a);
+                }
+            - component.update: scd41_sensor
+            - delay: 6s
+
+text:
+  - platform: template
+    id: room_label
+    name: "Room label"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    mode: TEXT
+    max_length: 14
+    initial_value: "${floor_label}"
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 10
+    set_action:
+      then:
+        - lambda: 'id(room_label).publish_state(x);'
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    internal: true
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 90
+
+switch:
+  - platform: gpio
+    id: peripheral_power
+    name: "Peripheral Power"
+    pin: GPIO20
+    restore_mode: ALWAYS_ON   # HIGH at setup (HARDWARE 800) -> SCD41 + EPD rail up before display init (PROCESSOR 400)
+    internal: true            # firmware-managed power gate, not an HA entity
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 80
+
+display:
+  - platform: waveshare_epaper
+    id: epaper_display
+    model: 1.54inv2           # SSD1681 (WeAct 1.54" B/W); NOT 1.54in (GDEP015OC1) - wrong init leaves BUSY stuck -> setup timeout, blank screen
+    cs_pin: GPIO7
+    dc_pin: GPIO5
+    reset_pin: GPIO0
+    busy_pin: GPIO10
+    reset_duration: 2ms       # required for newer driver HATs (Rev 2.1); otherwise reset pulse too long, panel never leaves busy
+    rotation: "90"
+    update_interval: never
+    full_update_every: 1   # every refresh is full: partial updates ghost, and the pre-sleep image persists for the whole sleep
+    pages:
+      - id: page_boot
+        lambda: |-
+          ESP_LOGI("screen", "boot wifi=%d mqtt=%d optional=%d", id(wifi_component).is_connected(), id(mqtt_client).is_connected(), id(mqtt_optional));
+          it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
+          {
+            float bp = id(battery_percent).state;
+            it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
+            if (isnan(bp)) {
+              it.print(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "-- %");
+            } else {
+              it.printf(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "%.0f %%", bp);
+            }
+          }
+          it.line(0, 20, 200, 20);
+          it.print(0, 30, id(font_label), "BOOTING...");
+          it.print(0, 70, id(font_label), "WIFI...");
+          if (id(wifi_component).is_connected()) {
+            it.print(200, 70, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca");
+          }
+          it.print(0, 100, id(font_label), "MQTT...");
+          if (id(mqtt_client).is_connected() || id(mqtt_optional)) { it.print(200, 100, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca"); }
+          it.print(0, 130, id(font_label), "SENSOR...");
+          // SENSOR check omitted: single-shot results arrive later; page flips to normal on first reading.
+          if (id(wifi_component).is_connected()) {
+            auto ips = id(wifi_component).wifi_sta_ip_addresses();
+            if (!ips.empty()) {
+              char ip_buf[40];
+              ips[0].str_to(ip_buf);
+              it.printf(0, 176, id(font_label), "%s", ip_buf);
+            }
+          }
+      - id: page_normal
+        lambda: |-
+          ESP_LOGI("screen", "screen co2=%.0f ppm temp=%.2f C hum=%.2f %%", id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
+          it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
+          {
+            float bp = id(battery_percent).state;
+            it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
+            if (isnan(bp)) {
+              it.print(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "-- %");
+            } else {
+              it.printf(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "%.0f %%", bp);
+            }
+          }
+          it.line(0, 20, 200, 20);
+          it.print(0, 50, id(font_icons), TextAlign::CENTER_LEFT, "\ue7b0");  // co2
+          if (isnan(id(co2_value).state)) {
+            it.print(200, 50, id(font_co2), TextAlign::CENTER_RIGHT, "--");
+          } else {
+            it.printf(200, 50, id(font_co2), TextAlign::CENTER_RIGHT, "%.0f", id(co2_value).state);
+          }
+          it.line(0, 80, 200, 80);
+          it.print(0, 110, id(font_icons), TextAlign::CENTER_LEFT, "\ue1ff");  // thermometer
+          if (isnan(id(temperature_value).state)) {
+            it.print(200, 110, id(font_temp), TextAlign::CENTER_RIGHT, "-- C");
+          } else {
+            it.printf(200, 110, id(font_temp), TextAlign::CENTER_RIGHT, "%.1f C", id(temperature_value).state);
+          }
+          it.line(0, 140, 200, 140);
+          it.print(0, 170, id(font_icons), TextAlign::CENTER_LEFT, "\ue798");  // water drop
+          if (isnan(id(humidity_value).state)) {
+            it.print(200, 170, id(font_humid), TextAlign::CENTER_RIGHT, "-- %%");
+          } else {
+            it.printf(200, 170, id(font_humid), TextAlign::CENTER_RIGHT, "%.0f %%", id(humidity_value).state);
+          }
+
+deep_sleep:
+  id: deep_sleep_id
+  sleep_duration: 15min
+  run_duration: 120s   # normal cap: measurement + render ≈ 35 s; gift setup overlay raises to 30 min while unprovisioned
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (!id(setup_mode))
+            id(allow_sleep) = id(wifi_component).is_connected();
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            display.is_displaying_page: page_boot
+          then:
+            - lambda: |-
+                // Main-loop poll: re-render the boot page when wifi/mqtt state changes.
+                // (mqtt.on_connect runs on the network task — unsafe to render from there.)
+                uint8_t now = (id(wifi_component).is_connected() ? 1 : 0)
+                            | (id(mqtt_client).is_connected() ? 2 : 0)
+                            | (id(mqtt_optional) ? 4 : 0);
+                if (now != id(boot_shown)) {
+                  id(boot_shown) = now;
+                  id(epaper_display).update();
+                }

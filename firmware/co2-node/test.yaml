@@ -1,0 +1,29 @@
+substitutions:
+  device_name: "co2-test"
+  friendly_name: "CO2 Test"
+  floor_label: "TEST"
+  mqtt_broker_compile: "homeassistant.local"
+  discovery_uid_generator: "mac"
+  log_level: "DEBUG"
+  ap_ssid: "co2-setup"
+  sleep_test: "5"
+packages:
+  core: !include co2-node-core.yaml
+  home: !include co2-node-home.yaml
+  webui: !include co2-node-webui.yaml
+esphome:
+  name: "${device_name}"
+  friendly_name: "${friendly_name}"
+  name_add_mac_suffix: true
+  comment: "Bring-up + production test image (NOT for release)"
+
+# Checkerboard display page for pixel test; appended via extend.
+display:
+  - id: !extend epaper_display
+    pages:
+      - id: page_checker
+        lambda: |-
+          for (int y = 0; y < 200; y += 10)
+            for (int x = 0; x < 200; x += 10)
+              if (((x + y) / 10) % 2 == 0)
+                it.filled_rectangle(x, y, 10, 10);

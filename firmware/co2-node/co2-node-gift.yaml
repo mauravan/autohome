@@ -1,5 +1,6 @@
 substitutions:
   ap_password_sub: "d1dx5h9q"
+  ap_ssid: "co2-setup"
 
 esphome:
   on_boot:
@@ -46,7 +47,7 @@ esphome:
 
 wifi:
   ap:
-    ssid: "co2-setup"
+    ssid: "${ap_ssid}"
     password: "${ap_password_sub}"
     ap_timeout: 30s          # AP appears before the 120 s wake cap
 
@@ -191,7 +192,7 @@ button:
             id(temp_offset).make_call().set_value(1.0).perform();
             id(hum_offset).make_call().set_value(0).perform();
             id(altitude).make_call().set_value(500).perform();
-            id(sleep_interval).make_call().set_value(5).perform();
+            id(sleep_interval).make_call().set_value(15).perform();
             id(room_label).make_call().set_value("CO2").perform();
             id(provisioned) = false;
         - delay: 1500ms
@@ -246,7 +247,8 @@ display:
             it.print(0, 160, id(font_label), "THEN FINISH");
           } else {
             it.print(0, 32, id(font_label), "1 JOIN WIFI");
-            it.printf(0, 56, id(font_label), "co2-setup:%s", "${ap_password_sub}");
+            it.printf(0, 32, id(font_label), "JOIN %s", "${ap_ssid}");
+            it.printf(0, 56, id(font_label), "PASS %s", "${ap_password_sub}");
             it.print(0, 90, id(font_label), "2 OPEN");
             it.print(0, 114, id(font_label), "192.168.4.1");
             it.print(0, 150, id(font_label), "3 SETTINGS IN WEB");

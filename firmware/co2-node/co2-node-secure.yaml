@@ -1,0 +1,19 @@
+# Product-only security package. Include ONLY in product.yaml — never in
+# home builds (the first boot burns eFuse key block 5 and wipes NVS
+# preferences once; test on one unit before the batch).
+substitutions:
+  ota_signing_key: !secret ota_signing_key
+
+esp32:
+  framework:
+    advanced:
+      nvs_encryption:
+        key_id: 5
+      signed_ota_verification:
+        signing_key: ${ota_signing_key}
+      enable_ota_downgrade_protection: true
+
+esphome:
+  project:
+    name: autohome.co2-node
+    version: "1.0.0"
