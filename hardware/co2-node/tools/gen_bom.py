@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""Generate bom/BOM.csv from the schematic refs (single source of truth).
+
+Each entry: ref, value, footprint, MPN, manufacturer, notes.
+Run: python3 tools/gen_bom.py
+"""
+import csv
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent.parent
+
+# ref -> (value, footprint, mpn, mfr, notes)
+BOM = {
+    # --- modules / ICs
+    "U10": ("ESP32-C3-MINI-1-N4", "module", "ESP32-C3-MINI-1-N4", "Espressif",
+            "4MB, PCB antenna; CE/RED reports from Espressif"),
+    "IC-SCD": ("SCD41-D-R2", "LGA-10x10", "SCD41-D-R2", "Sensirion",
+               "MSL3; VDD+VDDH tied; DNC floating pad; sealed tape"),
+    "U1": ("BQ24074RGTR", "VQFN-16", "BQ24074RGTR", "TI",
+           "500mA USB500 mode; R_ISET 1.78k; CE low; TS 10k NTC"),
+    "U2": ("TPS7A2633DRVR", "WSON-6", "TPS7A2633DRVR", "TI",
+           "3.3V 500mA 2uA; EN tied IN; NC to GND pad"),
+    "U3": ("DW01A", "SOT-23-6", "DW01A", "H&M Semi",
+           "1S protection 4.3/2.5V; TD float"),
+    "U4": ("FS8205A", "TSSOP-8", "FS8205A", "Fortune Semi",
+           "dual N-FET; OD->G1 OC->G2"),
+    # --- FETs / diodes / ESD
+    "Q2": ("AO3401A", "SOT-23", "AO3401A", "Alpha&Omega",
+           "reverse-polarity P-FET; G=GND S=CELL_F D=BAT_RAW"),
+    "Q3": ("AO3401A", "SOT-23", "AO3401A", "Alpha&Omega",
+           "peripheral gate P-FET; S=3V3 D=P3V3"),
+    "Q4": ("BSS138", "SOT-23", "BSS138", "Onsemi",
+           "gate inverter N-FET"),
+    "Q1": ("AO3402", "SOT-23", "AO3402", "Alpha&Omega",
+           "boost NMOS (WeAct)"),
+    "D20": ("CHG-GRN", "0603-LED", "LTST-C190KGKT", "Lite-On",
+            "charge status from CHG"),
+    "D21": ("B5819W", "SOD-323", "B5819W", "Diodes Inc", "boost VGL leg"),
+    "D22": ("B5819W", "SOD-323", "B5819W", "Diodes Inc", "boost SW leg"),
+    "D23": ("B5819W", "SOD-323", "B5819W", "Diodes Inc", "boost VGH leg"),
+    "D1": ("USBLC6-2SC6", "SOT-23-6", "USBLC6-2SC6", "ST",
+           "D+/D-/VBUS ESD"),
+    # --- passives: charger/LDO/gate/divider
+    "F1": ("0.75A", "0603", "MF-PSMF075X-2", "Bourns", "USB polyfuse"),
+    "F2": ("2A", "1206", "MF-PSMF200X-2", "Bourns", "battery polyfuse"),
+    "R10": ("5.1k", "0603", "RC0603-5.1k-1%", "Yageo", "USB-CC1"),
+    "R11": ("5.1k", "0603", "RC0603-5.1k-1%", "Yageo", "USB-CC2"),
+    "R12": ("22R", "0603", "RC0603-22R-1%", "Yageo", "USB_DP series"),
+    "R13": ("22R", "0603", "RC0603-22R-1%", "Yageo", "USB_DN series"),
+    "R20": ("1.78k", "0603", "RC0603-1.78k-1%", "Yageo", "ISET 500mA (KISET 890)"),
+    "R21": ("DNP", "0603", "-", "-", "ILIM DNP (USB500 fixed)"),
+    "R22": ("2.2k", "0603", "RC0603-2.2k-1%", "Yageo", "CHG LED pull-up"),
+    "R23": ("10k", "0603", "RC0603-10k-1%", "Yageo", "PGOOD pull-up"),
+    "R24": ("100R", "0603", "RC0603-100R-1%", "Yageo", "DW01A VCC feed"),
+    "R25": ("1k", "0603", "RC0603-1k-1%", "Yageo", "DW01A VM sense"),
+    "R27": ("100k", "0603", "RC0603-100k-1%", "Yageo", "3V3 PG pull-up"),
+    "R28": ("100k", "0603", "RC0603-100k-1%", "Yageo", "Q3 gate pull-up"),
+    "R29": ("100k", "0603", "RC0603-100k-1%", "Yageo", "PWR_EN pull-down (sleep off)"),
+    "R30": ("1M", "0603", "RC0603-1M-1%", "Yageo", "divider top (VBAT/2)"),
+    "R31": ("1M", "0603", "RC0603-1M-1%", "Yageo", "divider bottom"),
+    "R32": ("1k", "0603", "RC0603-1k-1%", "Yageo", "ADC series"),
+    "R40": ("10k", "0603", "RC0603-10k-1%", "Yageo", "EN pull-up"),
+    "R41": ("10k", "0603", "RC0603-10k-1%", "Yageo", "BOOT pull-up"),
+    "R42": ("10k", "0603", "RC0603-10k-1%", "Yageo", "strap GPIO2 pull-up"),
+    "R43": ("10k", "0603", "RC0603-10k-1%", "Yageo", "strap GPIO8 pull-up"),
+    "C20": ("1u", "0603", "CL10B105KP8NNNC", "Samsung", "BQ24074 VBUS"),
+    "C21": ("10u", "0603", "CL10A106KP8NNNC", "Samsung", "BQ24074 BAT"),
+    "C22": ("10u", "0603", "CL10A106KP8NNNC", "Samsung", "BQ24074 OUT/VSYS"),
+    "C23": ("0.1u", "0603", "CL10B104KP8NNNC", "Samsung", "DW01A VCC"),
+    "C24": ("1u", "0603", "CL10B105KP8NNNC", "Samsung", "LDO input"),
+    "C25": ("10u", "0603", "CL10A106KP8NNNC", "Samsung", "3V3 bulk"),
+    "C26": ("0.1u", "0603", "CL10B104KP8NNNC", "Samsung", "3V3 HF"),
+    "C27": ("10u", "0603", "CL10A106KP8NNNC", "Samsung", "P3V3 bulk"),
+    "C28": ("0.1u", "0603", "CL10B104KP8NNNC", "Samsung", "P3V3 HF"),
+    "C29": ("100n", "0603", "CL10B104KP8NNNC", "Samsung", "divider filter"),
+    "C40": ("10u", "0603", "CL10A106KP8NNNC", "Samsung", "MCU 3V3 bulk"),
+    "C41": ("1u", "0603", "CL10B105KP8NNNC", "Samsung", "MCU 3V3"),
+    "C42": ("0.1u", "0603", "CL10B104KP8NNNC", "Samsung", "MCU 3V3 HF"),
+    "C43": ("100n", "0603", "CL10B104KP8NNNC", "Samsung", "EN cap"),
+    # --- sensor
+    "FB50": ("600R@100MHz", "0603", "BLM18PG601SN1D", "Murata",
+             "SCD41 supply ferrite"),
+    "C50": ("1u", "0603", "CL10B105KP8NNNC", "Samsung", "SCD41 VDD+VDDH"),
+    "C51": ("10u", "0603", "CL10A106KP8NNNC", "Samsung", "SCD41 P3V3 side"),
+    "R50": ("10k", "0603", "RC0603-10k-1%", "Yageo", "I2C SDA pull-up to P3V3"),
+    "R51": ("10k", "0603", "RC0603-10k-1%", "Yageo", "I2C SCL pull-up to P3V3"),
+    # --- display boost (WeAct values, 0402/0603 per print)
+    "J2": ("FPC-24-0.5mm", "FPC-24", "FH12-24S-0.5SH", "Hirose",
+           "confirm contact side on spare panel before layout"),
+    "L1": ("10uH", "0603-ind", "LQH3NPN100MJRL", "Murata", "boost inductor"),
+    "R1": ("100K", "0402", "RC0402-100K-1%", "Yageo", "boost E_GDR pull-down"),
+    "R2": ("3R", "0603", "RC0603-3R-1%", "Yageo", "boost current sense"),
+    "C69": ("100p-NC", "0402", "-", "-", "C12 DNP per print"),
+    "C68": ("1u", "0402", "CL05B105KP5NNNC", "Samsung", "WeAct C8 input bulk"),
+    "C71": ("1u", "0402", "CL05B105KP5NNNC", "Samsung", "WeAct C6 SW cap"),
+    "C72": ("1u", "0402", "CL05B105KP5NNNC", "Samsung", "WeAct C1 VGL cap"),
+    "C70": ("1u", "0402", "CL05B105KP5NNNC", "Samsung", "WeAct C7 VGH cap"),
+    "C60": ("1u", "0402", "CL05B105KP5NNNC", "Samsung", "WeAct C2 panel rail"),
+    "C61": ("0.1u", "0402", "CL05B104KP5NNNC", "Samsung", "WeAct C9 bulk"),
+    "C62": ("1u", "0402", "CL05B105KP5NNNC", "Samsung", "WeAct C10"),
+    "C63": ("1u", "0402", "CL05B105KP5NNNC", "Samsung", "WeAct C11"),
+    "C64": ("1u", "0402", "CL05B105KP5NNNC", "Samsung", "WeAct C13 VGH"),
+    "C65": ("1u", "0402", "CL05B105KP5NNNC", "Samsung", "WeAct C14 VGL"),
+    "C66": ("10u", "0603", "CL10A106KP8NNNC", "Samsung", "boost 3V3 bulk (was U1 out)"),
+    "C67": ("0.1u", "0402", "CL05B104KP5NNNC", "Samsung", "boost 3V3 HF"),
+    "R60": ("100R", "0402", "RC0402-100R-1%", "Yageo", "EPD SDA series"),
+    "R61": ("100R", "0402", "RC0402-100R-1%", "Yageo", "EPD SCL series"),
+    "R62": ("100R", "0402", "RC0402-100R-1%", "Yageo", "EPD CS series"),
+    "R63": ("100R", "0402", "RC0402-100R-1%", "Yageo", "EPD DC series"),
+    "R64": ("100R", "0402", "RC0402-100R-1%", "Yageo", "EPD RES series"),
+    "R65": ("100R", "0402", "RC0402-100R-1%", "Yageo", "EPD BUSY series"),
+    "R66": ("5.1k", "0402", "RC0402-5.1k-1%", "Yageo", "E_BS 4-line strap"),
+    # --- connectors
+    "J1": ("USB-C-16P", "USB-C", "TYPE-C-16P", "G-Switch",
+           "5.1k CC to GND; mid-mount"),
+    "BT1": ("Keystone-1043", "THT", "1043", "Keystone",
+              "77.1mm 18650 holder; hand-solder; cell NOT supplied"),
+    "RT1": ("10k-B3950", "0603", "NCP18XH103FDBRB", "Murata",
+            "NTC at cell -> BQ24074 TS"),
+    "SW1": ("BOOT", "3x4mm", "TL3305", "E-Switch", "BOOT pinhole"),
+    "SW2": ("RESET", "3x4mm", "TL3305", "E-Switch", "RESET pinhole"),
+    "TP1": ("3V3", "TP-1.0", "-", "-", "pogo 3V3"),
+    "TP2": ("GND", "TP-1.0", "-", "-", "pogo GND"),
+    "TP3": ("BAT+", "TP-1.0", "-", "-", "pogo BAT"),
+    "TP4": ("P3V3", "TP-1.0", "-", "-", "pogo P3V3"),
+    "TP5": ("RESET_N", "TP-1.0", "-", "-", "pogo EN"),
+    "TP6": ("BOOT_N", "TP-1.0", "-", "-", "pogo GPIO9"),
+    "TP7": ("I2C_SCL", "TP-1.0", "-", "-", "pogo SCL"),
+    "TP8": ("PWR_EN", "TP-1.0", "-", "-", "pogo PWR_EN"),
+    "H1": ("M2.5", "hole", "-", "-", "mount (3.5,3.5)"),
+    "H2": ("M2.5", "hole", "-", "-", "mount (91.5,3.5)"),
+    "H3": ("M2.5", "hole", "-", "-", "mount (3.5,41.5)"),
+    "H4": ("M2.5", "hole", "-", "-", "mount (91.5,41.5)"),
+    "LBL1": ("AH-CO2-1", "70x30", "-", "-", "back label; no metal over antenna"),
+    "DNC-PAD": ("DNC-float", "Cu", "-", "-", "SCD41 DNC floating island"),
+}
+
+
+def main():
+    rows = [("ref", "value", "footprint", "mpn", "manufacturer", "notes")]
+    for ref in sorted(BOM, key=lambda r: (r.rstrip("0123456789"), r)):
+        v, fp, mpn, mfr, notes = BOM[ref]
+        rows.append((ref, v, fp, mpn, mfr, notes))
+    with open(HERE / "bom" / "BOM.csv", "w", newline="") as f:
+        csv.writer(f).writerows(rows)
+    print(f"BOM: {len(rows) - 1} lines -> bom/BOM.csv")
+
+
+if __name__ == "__main__":
+    main()
