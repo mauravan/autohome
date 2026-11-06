@@ -12,7 +12,7 @@ level is republished after MQTT connects.
 
 Three variants share one package: `top.yaml`, `mid.yaml`, `bottom.yaml` differ only in
 `device_name` / `friendly_name` / `floor_label`. Sensor `name`s live in
-`co2-node-common.yaml` and carry the floor prefix directly
+`co2-node-core.yaml` and carry the floor prefix directly
 (`name: "${friendly_name} CO2"` → `"Top Floor CO2"`), which HA slugifies to the entity
 ids the dashboard already references (`sensor.top_floor_co2`, `_temperature`,
 `_humidity`, and the `mid_floor_*` / `bottom_floor_*` triplets).
@@ -27,7 +27,9 @@ ids the dashboard already references (`sensor.top_floor_co2`, `_temperature`,
 
 | File | Purpose |
 |---|---|
-| `co2-node-common.yaml` | Shared package: ESP32, WiFi AP/portal, web UI, MQTT, SCD41, e-paper, deep sleep |
+| `co2-node-core.yaml` | Shared hardware package: ESP32, WiFi, MQTT, SCD41, e-paper, deep sleep, OTA, safe_mode |
+| `co2-node-webui.yaml` | Web server + auth + sorting groups |
+| `co2-node-secure.yaml` | Product-only: NVS encryption, signed OTA, downgrade protection |
 | `co2-node-home.yaml` | Home package: station WiFi + home MQTT/offsets defaults (merged with common) |
 | `gift.yaml` | Gift build: generic MAC-suffixed identity, unprovisioned defaults, no station creds |
 | `top.yaml` / `mid.yaml` / `bottom.yaml` | Per-floor identity + `!include` of common + home packages |
@@ -109,7 +111,7 @@ Top/mid devices that predate the battery sensor must be reflashed before battery
 
 ## Production port: ESP32-C6 mini + battery (documented; not built yet)
 
-Same `co2-node-common.yaml` logic. When the C6 board is in hand, three changes:
+Same `co2-node-core.yaml` logic. When the C6 board is in hand, three changes:
 
 1. **Board**: `esp32.board:` → the C6 board id (`esp32-c6-devkitc-1` or the specific
    "mini" board's `board:`; add `variant: esp32c6` if the board requires it).
@@ -122,7 +124,7 @@ Same `co2-node-common.yaml` logic. When the C6 board is in hand, three changes:
    DC-bias-while-floating risk). ESP32-C6 deep-sleep is ~7 µA (chip); the board LDO
    quiescent current dominates — pick an LDO with µA-scale IQ.
 
-### Power optimizations already in `co2-node-common.yaml`
+### Power optimizations already in `co2-node-core.yaml`
 
 - `logger.level: NONE` — no log formatting/TX per wake (flip to `DEBUG` only while developing).
 - `wifi.power_save_mode: LIGHT` — modem sleeps during the ~30 s SCD41 measurement phase (the largest idle draw).
