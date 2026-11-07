@@ -197,3 +197,11 @@ authentication; treat it as LAN-local. The UI also lists the internal
 - Existing Pi publisher topics/`unique_id`s are not in this repo. Capture them at
   cutover (see plan Step 4); if the old publisher cannot be located, stopping the Pis
   and deleting the stale HA entities achieves the same clean names.
+
+## Production flags (no cadence change)
+
+- `production/build_unit.py --render-only --out-dir <dir>` renders
+  `product-<last4>.yaml` without flashing and exits 0 without touching
+  `units.csv` (`--port` optional in this mode).
+- `production/test_unit.py --dry-run --log <file>` exercises the assertion
+  logic (thresholds unchanged) without hardware.

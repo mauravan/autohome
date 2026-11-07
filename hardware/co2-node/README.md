@@ -1,8 +1,10 @@
 # CO2 sensor node — custom production board (rev A)
 
 2-layer, 95 × 45 mm, 1.6 mm, ENIG. No development components.
-KiCad 9 project: open `co2-node.kicad_pro`. Regenerate with
-`python3 tools/gen_kicad.py` — never hand-edit generated files.
+KiCad-native project: open `co2-node.kicad_pro`. Regenerate with
+`python3 tools/gen_all.py` — never hand-edit generated files.
+Gates: `python3 tools/verify_all.py` (ERC 0 errors, DRC parity 0 +
+unconnected-only pre-route, netlist assertions, exports, firmware).
 
 ## Electrical-equivalence rule (binding)
 
@@ -68,5 +70,11 @@ depend on it.
   both layers; plastic case only.
 - SCD41 at bottom-front edge by the vent grille; no copper pour under body;
   charger/LDO/boost away from sensor; cell holder top edge at y = 15 mm.
-- Test pads on front side / bottom edge, clear of the holder for the pogo
-  fixture. `3V3 GND BAT P3V3 EN GPIO9 SCL PWR_EN`, 1.0 mm, + 3 fiducials.
+- Test pads TP1–8 on bottom edge y = 1.5 (pogo row, clear of holder).
+  `3V3 GND BAT+ P3V3 RESET_N BOOT_N I2C_SCL PWR_EN`, 1.0 mm.
+- Adopted connector footprints: USB-C =
+  `Connector_USB:USB_C_Receptacle_HCTL_HC-TYPE-C-16P-01A` (MPN HCTL
+  `HC-TYPE-C-16P-01A`), FPC-24 =
+  `Connector_FFC-FPC:Hirose_FH12-24S-0.5SH_1x24-1MP_P0.50mm_Horizontal`,
+  switches = KMR2 (`KMR221G`), mounting = plated 2.7 mm M2.5 to GND.
+- Net naming: the single USB data-minus net is `USB_DM` (`USB_DN` retired).

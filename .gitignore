@@ -2,3 +2,8 @@
 # KiCad/python artifacts
 __pycache__/
 *.pyc
+
+# Per-unit renders (build_unit.py --render-only)
+firmware/co2-node/product-*.yaml
+# KiCad regen outputs
+hardware/co2-node/build/

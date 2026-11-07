@@ -1,5 +1,0 @@
-(footprint "LABEL-70x30" (version 20241229) (generator "co2-node-gen")
-  (descr "label ref")
-  (attr exclude_from_pos_files exclude_from_bom)
-  (fp_text user "AH-CO2-1" (at 0 0) (layer "F.Fab") (effects (font (size 2 2))) (uuid "df34a390-9ab6-4227-aded-55b071436fa3"))
-)

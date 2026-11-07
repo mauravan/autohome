@@ -1,45 +1,199 @@
-(kicad_sch (version 20250114) (generator "eeschema") (generator_version "9.0")
-  (uuid "f0965d2a-37fc-4a35-9d36-2fe19d1233fd")
-  (paper "A2")
-  (title_block (title "CO2 sensor node rev A - root") (date "2026-11-05") (rev "A") (company "autohome"))
-  (sheet (at 10 10) (size 110 70) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid)) (fill (color 255 255 255 0.0))
-    (uuid "2fb6edc7-8755-4645-bd81-752cd965b4af")
-    (property "Sheetname" "power" (at 10 8 0)
-      (effects (font (size 1.27 1.27))))
-    (property "Sheetfile" "power.kicad_sch" (at 10 9.5 0)
-      (effects (font (size 1.27 1.27))))
-  )
-  (sheet (at 130 10) (size 110 70) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid)) (fill (color 255 255 255 0.0))
-    (uuid "dc6c6f86-d5db-44a8-a71c-e2e07c581c9f")
-    (property "Sheetname" "mcu" (at 130 8 0)
-      (effects (font (size 1.27 1.27))))
-    (property "Sheetfile" "mcu.kicad_sch" (at 130 9.5 0)
-      (effects (font (size 1.27 1.27))))
-  )
-  (sheet (at 250 10) (size 110 70) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid)) (fill (color 255 255 255 0.0))
-    (uuid "a7b0eb52-ac18-4096-8744-d10d66ebf3da")
-    (property "Sheetname" "sensor" (at 250 8 0)
-      (effects (font (size 1.27 1.27))))
-    (property "Sheetfile" "sensor.kicad_sch" (at 250 9.5 0)
-      (effects (font (size 1.27 1.27))))
-  )
-  (sheet (at 370 10) (size 110 70) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid)) (fill (color 255 255 255 0.0))
-    (uuid "e4b043b2-07bc-4281-bebc-88a6b5208062")
-    (property "Sheetname" "display" (at 370 8 0)
-      (effects (font (size 1.27 1.27))))
-    (property "Sheetfile" "display.kicad_sch" (at 370 9.5 0)
-      (effects (font (size 1.27 1.27))))
-  )
-  (sheet (at 10 100) (size 110 70) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid)) (fill (color 255 255 255 0.0))
-    (uuid "d7fbd3c5-2cc2-494c-b42f-da37e5ce0ff5")
-    (property "Sheetname" "connectors" (at 10 98 0)
-      (effects (font (size 1.27 1.27))))
-    (property "Sheetfile" "connectors.kicad_sch" (at 10 99.5 0)
-      (effects (font (size 1.27 1.27))))
-  )
+(kicad_sch
+	(version 20250114)
+	(generator "eeschema")
+	(generator_version "9.0")
+	(uuid "950c8119-cd7d-585b-b5e8-94a6a3c3a36c")
+	(paper "A3")
+	(title_block
+		(title "CO2 sensor node rev A - root")
+		(date "2026-11-05")
+		(rev "A")
+		(company "autohome")
+	)
+	(sheet
+		(at 10 10)
+		(size 110 70)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "824d5587-e1b5-583e-a634-a1231c238cee")
+		(property "Sheetname" "power"
+			(at 10 8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sheetfile" "power.kicad_sch"
+			(at 10 9.5 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "co2-node"
+				(path "/950c8119-cd7d-585b-b5e8-94a6a3c3a36c"
+					(page "2")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 130 10)
+		(size 110 70)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "da0ef97d-35ce-54e6-be83-56165b1344a0")
+		(property "Sheetname" "mcu"
+			(at 130 8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sheetfile" "mcu.kicad_sch"
+			(at 130 9.5 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "co2-node"
+				(path "/950c8119-cd7d-585b-b5e8-94a6a3c3a36c"
+					(page "3")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 250 10)
+		(size 110 70)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "db6a5f5e-036b-5d6a-846c-42901b78d318")
+		(property "Sheetname" "sensor"
+			(at 250 8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sheetfile" "sensor.kicad_sch"
+			(at 250 9.5 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "co2-node"
+				(path "/950c8119-cd7d-585b-b5e8-94a6a3c3a36c"
+					(page "4")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 370 10)
+		(size 110 70)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "daf1d593-313a-54ab-a958-a03db00bf85c")
+		(property "Sheetname" "display"
+			(at 370 8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sheetfile" "display.kicad_sch"
+			(at 370 9.5 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "co2-node"
+				(path "/950c8119-cd7d-585b-b5e8-94a6a3c3a36c"
+					(page "5")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 490 10)
+		(size 110 70)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "b613a139-27c0-5776-bcda-5ea847632dbc")
+		(property "Sheetname" "connectors"
+			(at 490 8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sheetfile" "connectors.kicad_sch"
+			(at 490 9.5 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "co2-node"
+				(path "/950c8119-cd7d-585b-b5e8-94a6a3c3a36c"
+					(page "6")
+				)
+			)
+		)
+	)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
+	(embedded_fonts no)
 )

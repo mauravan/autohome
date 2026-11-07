@@ -40,9 +40,15 @@ def read_mac(port):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--serial", required=True)
-    ap.add_argument("--port", required=True)
+    ap.add_argument("--port", required=False, default="")
     ap.add_argument("--mac", default="")
+    ap.add_argument("--render-only", action="store_true",
+                    help="only render product-<last4>.yaml, no flash")
+    ap.add_argument("--out-dir", default="",
+                    help="write product yaml here (default firmware/co2-node/)")
     a = ap.parse_args()
+    if a.render_only and not a.mac:
+        sys.exit("build_unit.py: --render-only needs --mac (no hardware touched)")
     mac = a.mac or read_mac(a.port)
     last4 = mac.replace(":", "")[-4:].lower()
     ap_pass = secrets.token_urlsafe(9)[:12]
@@ -54,8 +60,13 @@ def main():
                .replace('ap_ssid: "co2-setup-XXXX"', f'ap_ssid: "co2-setup-{last4}"')
                .replace('ap_password_sub: "REPLACE-12CHAR"',
                         f'ap_password_sub: "{ap_pass}"'))
-    yf = FW / f"product-{last4}.yaml"
+    outdir = Path(a.out_dir) if a.out_dir else FW
+    outdir.mkdir(parents=True, exist_ok=True)
+    yf = outdir / f"product-{last4}.yaml"
     yf.write_text(unit)
+    if a.render_only:
+        print(f"rendered {yf} (no flash, no units.csv)")
+        return
     run("esphome", "compile", str(yf))
     run("esphome", "upload", str(yf), "--device", a.port)
     # label

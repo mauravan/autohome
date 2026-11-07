@@ -1,0 +1,10 @@
+[12:00:01] mqtt co2=812 ppm
+[12:00:02] temp 22.5 C humidity 45.0 %
+[12:00:03] cell 3.94 V
+[12:00:04] wake duration 12.3 s
+[12:00:05] scd4x sensor found at 0x62
+[12:00:06] wifi connected, mqtt published
+[12:00:07] display refreshed
+[12:00:08] entering deep sleep
+[12:00:09] battery monitor ok
+[12:00:10] test complete PASS

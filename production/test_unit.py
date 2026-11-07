@@ -25,12 +25,22 @@ def main():
     ap.add_argument("--broker", default="homeassistant.local")
     ap.add_argument("--sleep-ua", type=float, default=-1)
     ap.add_argument("--charge-ma", type=float, default=-1)
+    ap.add_argument("--dry-run", action="store_true",
+                    help="exercise assertion logic against --log without hardware")
+    ap.add_argument("--log", default="",
+                    help="log file to assert on with --dry-run")
     a = ap.parse_args()
     fails = []
-    r = subprocess.run(["esphome", "logs", "test.yaml", "--device", a.port],
-                       capture_output=True, text=True, timeout=180)
-    log = r.stdout + r.stderr
-    (HERE / f"test-{a.serial}.log").write_text(log)
+    if a.dry_run:
+        if not a.log:
+            sys.exit("test_unit.py: --dry-run needs --log <file>")
+        log = Path(a.log).read_text()
+        (HERE / f"test-{a.serial}.log").write_text(log)
+    else:
+        r = subprocess.run(["esphome", "logs", "test.yaml", "--device", a.port],
+                           capture_output=True, text=True, timeout=180)
+        log = r.stdout + r.stderr
+        (HERE / f"test-{a.serial}.log").write_text(log)
     co2 = re.findall(r"mqtt co2=([\d.]+) ppm", log)
     if not co2:
         fails.append("no CO2 reading in log")
