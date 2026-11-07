@@ -235,24 +235,45 @@ display:
     pages:
       - id: page_setup
         lambda: |-
-          it.print(0, 0, id(font_label), "SETUP MODE");
-          it.line(0, 20, 200, 20);
-          if (id(wifi_component).is_connected()) {
-            char ip_buf[40];
-            auto ips = id(wifi_component).wifi_sta_ip_addresses();
-            it.print(0, 32, id(font_label), "WIFI OK");
-            it.print(0, 56, id(font_label), "OPEN IN BROWSER");
-            it.printf(0, 80, id(font_label), "http://%s", ips[0].str_to(ip_buf));
-            it.print(0, 120, id(font_label), "SET MQTT / OFFSETS");
-            it.print(0, 160, id(font_label), "THEN FINISH");
+          if (it.get_native_width() > 200) {
+            if (id(wifi_component).is_connected()) {
+              char ip_buf[40];
+              auto ips = id(wifi_component).wifi_sta_ip_addresses();
+              ips[0].str_to(ip_buf);
+              it.print(0, 46, id(font_label_lg), "WIFI OK");
+              it.print(0, 80, id(font_label_lg), "OPEN IN BROWSER");
+              it.printf(0, 114, id(font_label_lg), "http://%s", ip_buf);
+              it.print(0, 160, id(font_label_lg), "SET MQTT / OFFSETS");
+              it.print(0, 194, id(font_label_lg), "THEN FINISH");
+            } else {
+              it.print(0, 46, id(font_label_lg), "1 JOIN WIFI");
+              it.printf(0, 80, id(font_label_lg), "JOIN %s", "${ap_ssid}");
+              it.printf(0, 114, id(font_label_lg), "PASS %s", "${ap_password_sub}");
+              it.print(0, 148, id(font_label_lg), "2 OPEN");
+              it.print(0, 182, id(font_label_lg), "192.168.4.1");
+              it.print(0, 216, id(font_label_lg), "3 SETTINGS IN WEB");
+              it.print(0, 250, id(font_label_lg), "4 PRESS FINISH");
+            }
           } else {
-            it.print(0, 32, id(font_label), "1 JOIN WIFI");
-            it.printf(0, 32, id(font_label), "JOIN %s", "${ap_ssid}");
-            it.printf(0, 56, id(font_label), "PASS %s", "${ap_password_sub}");
-            it.print(0, 90, id(font_label), "2 OPEN");
-            it.print(0, 114, id(font_label), "192.168.4.1");
-            it.print(0, 150, id(font_label), "3 SETTINGS IN WEB");
-            it.print(0, 176, id(font_label), "4 PRESS FINISH");
+            it.print(0, 0, id(font_label), "SETUP MODE");
+            it.line(0, 20, 200, 20);
+            if (id(wifi_component).is_connected()) {
+              char ip_buf[40];
+              auto ips = id(wifi_component).wifi_sta_ip_addresses();
+              it.print(0, 32, id(font_label), "WIFI OK");
+              it.print(0, 56, id(font_label), "OPEN IN BROWSER");
+              it.printf(0, 80, id(font_label), "http://%s", ips[0].str_to(ip_buf));
+              it.print(0, 120, id(font_label), "SET MQTT / OFFSETS");
+              it.print(0, 160, id(font_label), "THEN FINISH");
+            } else {
+              it.print(0, 32, id(font_label), "1 JOIN WIFI");
+              it.printf(0, 32, id(font_label), "JOIN %s", "${ap_ssid}");
+              it.printf(0, 56, id(font_label), "PASS %s", "${ap_password_sub}");
+              it.print(0, 90, id(font_label), "2 OPEN");
+              it.print(0, 114, id(font_label), "192.168.4.1");
+              it.print(0, 150, id(font_label), "3 SETTINGS IN WEB");
+              it.print(0, 176, id(font_label), "4 PRESS FINISH");
+            }
           }
 
 interval:

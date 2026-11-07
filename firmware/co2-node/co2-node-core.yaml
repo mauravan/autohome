@@ -1,10 +1,15 @@
 substitutions:
   log_level: "NONE"
   ota_password: !secret ota_password
-  web_user: "admin"
-  web_password: !secret web_password
   ap_ssid: "co2-setup"
   discovery_uid_generator: "legacy"
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [runtime_epaper]
+
 esphome:
   on_boot:
     - priority: 650
@@ -142,6 +147,27 @@ font:
       - "\U0000e1a4"  # battery_full
       - "\U0000e19c"  # battery_alert
       - "\U0000ebdd"  # battery_3_bar — half
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_label_lg
+    size: 24
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_value_lg
+    size: 60
+  - file: "fonts/MaterialIcons-Regular.ttf"
+    id: font_icons_lg
+    size: 36
+    glyphs:
+      - "\U0000e7b0"  # co2
+      - "\U0000e1ff"  # device_thermostat
+      - "\U0000e798"  # water_drop
+  - file: "fonts/MaterialIcons-Regular.ttf"
+    id: font_status_lg
+    size: 24
+    glyphs:
+      - "\U0000e5ca"  # check
+      - "\U0000e1a4"  # battery_full
+      - "\U0000e19c"  # battery_alert
+      - "\U0000ebdd"  # battery_3_bar
 
 globals:
   - id: boot_shown
@@ -480,84 +506,174 @@ switch:
     web_server:
       sorting_group_id: grp_device
       sorting_weight: 80
+  - platform: template
+    id: panel_42
+    name: "4.2 inch panel"
+    internal: true
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 70
+    turn_on_action:
+      - lambda: 'id(epaper_display)->set_panel_requested(true);'
+    turn_off_action:
+      - lambda: 'id(epaper_display)->set_panel_requested(false);'
 
 display:
-  - platform: waveshare_epaper
+  - platform: runtime_epaper
     id: epaper_display
-    model: 1.54inv2           # SSD1681 (WeAct 1.54" B/W); NOT 1.54in (GDEP015OC1) - wrong init leaves BUSY stuck -> setup timeout, blank screen
     cs_pin: GPIO7
     dc_pin: GPIO5
     reset_pin: GPIO0
     busy_pin: GPIO10
-    reset_duration: 2ms       # required for newer driver HATs (Rev 2.1); otherwise reset pulse too long, panel never leaves busy
-    rotation: "90"
     update_interval: never
-    full_update_every: 1   # every refresh is full: partial updates ghost, and the pre-sleep image persists for the whole sleep
     pages:
       - id: page_boot
         lambda: |-
           ESP_LOGI("screen", "boot wifi=%d mqtt=%d optional=%d", id(wifi_component).is_connected(), id(mqtt_client).is_connected(), id(mqtt_optional));
-          it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
-          {
-            float bp = id(battery_percent).state;
-            it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
-            if (isnan(bp)) {
-              it.print(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "-- %");
-            } else {
-              it.printf(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "%.0f %%", bp);
+          if (it.get_native_width() > 200) {
+            int w = it.get_width();
+            int h = it.get_height();
+            it.printf(0, 0, id(font_label_lg), "%s", id(room_label).state.c_str());
+            {
+              float bp = id(battery_percent).state;
+              it.print(w, 2, id(font_status_lg), TextAlign::TOP_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
+              if (isnan(bp)) {
+                it.print(w - 30, 2, id(font_label_lg), TextAlign::TOP_RIGHT, "-- %");
+              } else {
+                it.printf(w - 30, 2, id(font_label_lg), TextAlign::TOP_RIGHT, "%.0f %%", bp);
+              }
             }
-          }
-          it.line(0, 20, 200, 20);
-          it.print(0, 30, id(font_label), "BOOTING...");
-          it.print(0, 70, id(font_label), "WIFI...");
-          if (id(wifi_component).is_connected()) {
-            it.print(200, 70, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca");
-          }
-          it.print(0, 100, id(font_label), "MQTT...");
-          if (id(mqtt_client).is_connected() || id(mqtt_optional)) { it.print(200, 100, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca"); }
-          it.print(0, 130, id(font_label), "SENSOR...");
-          // SENSOR check omitted: single-shot results arrive later; page flips to normal on first reading.
-          if (id(wifi_component).is_connected()) {
-            auto ips = id(wifi_component).wifi_sta_ip_addresses();
-            if (!ips.empty()) {
-              char ip_buf[40];
-              ips[0].str_to(ip_buf);
-              it.printf(0, 176, id(font_label), "%s", ip_buf);
+            it.line(0, 32, w, 32);
+            const float rh = (h - 44 - 40) / 4.0f;
+            const char *rows[] = {"BOOTING...", "WIFI...", "MQTT...", "SENSOR..."};
+            for (int i = 0; i < 4; i++) {
+              int y = 40 + (int)(rh * (i + 0.5f));
+              it.print(0, y, id(font_label_lg), TextAlign::TOP_LEFT, rows[i]);
+            }
+            if (id(wifi_component).is_connected()) {
+              int yw = 40 + (int)(rh * 1.5f);
+              it.print(w, yw, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
+            }
+            if (id(mqtt_client).is_connected() || id(mqtt_optional)) {
+              int ym = 40 + (int)(rh * 2.5f);
+              it.print(w, ym, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
+            }
+            // SENSOR check omitted: single-shot results arrive later; page flips to normal on first reading.
+            if (id(wifi_component).is_connected()) {
+              auto ips = id(wifi_component).wifi_sta_ip_addresses();
+              if (!ips.empty()) {
+                char ip_buf[40];
+                ips[0].str_to(ip_buf);
+                it.printf(0, h - 34, id(font_label_lg), "%s", ip_buf);
+              }
+            }
+          } else {
+            it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
+            {
+              float bp = id(battery_percent).state;
+              it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
+              if (isnan(bp)) {
+                it.print(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "-- %");
+              } else {
+                it.printf(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "%.0f %%", bp);
+              }
+            }
+            it.line(0, 20, 200, 20);
+            it.print(0, 30, id(font_label), "BOOTING...");
+            it.print(0, 70, id(font_label), "WIFI...");
+            if (id(wifi_component).is_connected()) {
+              it.print(200, 70, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca");
+            }
+            it.print(0, 100, id(font_label), "MQTT...");
+            if (id(mqtt_client).is_connected() || id(mqtt_optional)) { it.print(200, 100, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca"); }
+            it.print(0, 130, id(font_label), "SENSOR...");
+            // SENSOR check omitted: single-shot results arrive later; page flips to normal on first reading.
+            if (id(wifi_component).is_connected()) {
+              auto ips = id(wifi_component).wifi_sta_ip_addresses();
+              if (!ips.empty()) {
+                char ip_buf[40];
+                ips[0].str_to(ip_buf);
+                it.printf(0, 176, id(font_label), "%s", ip_buf);
+              }
             }
           }
       - id: page_normal
         lambda: |-
           ESP_LOGI("screen", "screen co2=%.0f ppm temp=%.2f C hum=%.2f %%", id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
-          it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
-          {
-            float bp = id(battery_percent).state;
-            it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
-            if (isnan(bp)) {
-              it.print(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "-- %");
-            } else {
-              it.printf(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "%.0f %%", bp);
+          if (it.get_native_width() > 200) {
+            int w = it.get_width();
+            int h = it.get_height();
+            it.printf(0, 0, id(font_label_lg), "%s", id(room_label).state.c_str());
+            {
+              float bp = id(battery_percent).state;
+              it.print(w, 2, id(font_status_lg), TextAlign::TOP_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
+              if (isnan(bp)) {
+                it.print(w - 30, 2, id(font_label_lg), TextAlign::TOP_RIGHT, "-- %");
+              } else {
+                it.printf(w - 30, 2, id(font_label_lg), TextAlign::TOP_RIGHT, "%.0f %%", bp);
+              }
             }
-          }
-          it.line(0, 20, 200, 20);
-          it.print(0, 50, id(font_icons), TextAlign::CENTER_LEFT, "\ue7b0");  // co2
-          if (isnan(id(co2_value).state)) {
-            it.print(200, 50, id(font_co2), TextAlign::CENTER_RIGHT, "--");
+            it.line(0, 32, w, 32);
+            const float rh = (h - 32) / 3.0f;
+            int c0 = 32 + (int)(rh * 0.5f);
+            int c1 = 32 + (int)(rh * 1.5f);
+            int c2 = 32 + (int)(rh * 2.5f);
+            int l1 = 32 + (int)rh;
+            int l2 = 32 + (int)(rh * 2.0f);
+            it.print(0, c0, id(font_icons_lg), TextAlign::CENTER_LEFT, "\ue7b0");
+            if (isnan(id(co2_value).state)) {
+              it.print(w, c0, id(font_value_lg), TextAlign::CENTER_RIGHT, "--");
+            } else {
+              it.printf(w, c0, id(font_value_lg), TextAlign::CENTER_RIGHT, "%.0f", id(co2_value).state);
+            }
+            it.line(0, l1, w, l1);
+            it.print(0, c1, id(font_icons_lg), TextAlign::CENTER_LEFT, "\ue1ff");
+            if (isnan(id(temperature_value).state)) {
+              it.print(w, c1, id(font_value_lg), TextAlign::CENTER_RIGHT, "-- C");
+            } else {
+              it.printf(w, c1, id(font_value_lg), TextAlign::CENTER_RIGHT, "%.1f C", id(temperature_value).state);
+            }
+            it.line(0, l2, w, l2);
+            it.print(0, c2, id(font_icons_lg), TextAlign::CENTER_LEFT, "\ue798");
+            if (isnan(id(humidity_value).state)) {
+              it.print(w, c2, id(font_value_lg), TextAlign::CENTER_RIGHT, "-- %%");
+            } else {
+              it.printf(w, c2, id(font_value_lg), TextAlign::CENTER_RIGHT, "%.0f %%", id(humidity_value).state);
+            }
           } else {
-            it.printf(200, 50, id(font_co2), TextAlign::CENTER_RIGHT, "%.0f", id(co2_value).state);
-          }
-          it.line(0, 80, 200, 80);
-          it.print(0, 110, id(font_icons), TextAlign::CENTER_LEFT, "\ue1ff");  // thermometer
-          if (isnan(id(temperature_value).state)) {
-            it.print(200, 110, id(font_temp), TextAlign::CENTER_RIGHT, "-- C");
-          } else {
-            it.printf(200, 110, id(font_temp), TextAlign::CENTER_RIGHT, "%.1f C", id(temperature_value).state);
-          }
-          it.line(0, 140, 200, 140);
-          it.print(0, 170, id(font_icons), TextAlign::CENTER_LEFT, "\ue798");  // water drop
-          if (isnan(id(humidity_value).state)) {
-            it.print(200, 170, id(font_humid), TextAlign::CENTER_RIGHT, "-- %%");
-          } else {
-            it.printf(200, 170, id(font_humid), TextAlign::CENTER_RIGHT, "%.0f %%", id(humidity_value).state);
+            it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
+            {
+              float bp = id(battery_percent).state;
+              it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
+              if (isnan(bp)) {
+                it.print(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "-- %");
+              } else {
+                it.printf(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "%.0f %%", bp);
+              }
+            }
+            it.line(0, 20, 200, 20);
+            it.print(0, 50, id(font_icons), TextAlign::CENTER_LEFT, "\ue7b0");  // co2
+            if (isnan(id(co2_value).state)) {
+              it.print(200, 50, id(font_co2), TextAlign::CENTER_RIGHT, "--");
+            } else {
+              it.printf(200, 50, id(font_co2), TextAlign::CENTER_RIGHT, "%.0f", id(co2_value).state);
+            }
+            it.line(0, 80, 200, 80);
+            it.print(0, 110, id(font_icons), TextAlign::CENTER_LEFT, "\ue1ff");  // thermometer
+            if (isnan(id(temperature_value).state)) {
+              it.print(200, 110, id(font_temp), TextAlign::CENTER_RIGHT, "-- C");
+            } else {
+              it.printf(200, 110, id(font_temp), TextAlign::CENTER_RIGHT, "%.1f C", id(temperature_value).state);
+            }
+            it.line(0, 140, 200, 140);
+            it.print(0, 170, id(font_icons), TextAlign::CENTER_LEFT, "\ue798");  // water drop
+            if (isnan(id(humidity_value).state)) {
+              it.print(200, 170, id(font_humid), TextAlign::CENTER_RIGHT, "-- %%");
+            } else {
+              it.printf(200, 170, id(font_humid), TextAlign::CENTER_RIGHT, "%.0f %%", id(humidity_value).state);
+            }
           }
 
 deep_sleep:
@@ -571,6 +687,11 @@ interval:
       - lambda: |-
           if (!id(setup_mode))
             id(allow_sleep) = id(wifi_component).is_connected();
+  - interval: 500ms
+    then:
+      - lambda: |-
+          if (id(epaper_display)->is_panel_change_pending())
+            id(epaper_display)->apply_panel_change();
   - interval: 1s
     then:
       - if:

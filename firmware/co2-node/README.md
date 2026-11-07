@@ -4,8 +4,8 @@ Battery-powered per-floor CO₂ / temperature / humidity node. Wakes every 15 mi
 (product default; home floors currently run 5 min), takes 3× SCD41 single-shot
 measurements (~6 s apart, averaged via `sliding_window_moving_average` with
 `window_size: 3` / `send_every: 3` / `send_first_at: 3`, so only the 3-sample
-mean is published), fully refreshes a WeAct
-1.54" B/W e-paper (SSD1681), publishes to the Mosquitto broker via ESPHome MQTT
+mean is published), fully refreshes a WeAct 1.54" (200×200) or WeAct 4.2"
+(400×300) B/W e-paper, selected at runtime, publishes to the Mosquitto broker via ESPHome MQTT
 discovery, then deep-sleeps. Battery is sampled 3× at boot and averaged via
 `sliding_window_moving_average` (window 3), matching the SCD41 channels; the averaged
 level is republished after MQTT connects.
@@ -182,13 +182,14 @@ Battery note: press `Finish setup` to stop the 30-minute setup window.
 
 Security: setup AP is WPA2 with the published password; the web UI on port 80 has no
 authentication; treat it as LAN-local. The UI also lists the internal
-`Peripheral Power` switch (because `include_internal` is on); leave it on.
+`Peripheral Power` switch (because `include_internal` is on); leave it on. Device → '4.2 inch panel' selects the panel (off = 1.54", on = 4.2"); the choice is
+stored in NVS. Auto-detection is not possible: the panel interface is write-only SPI and
+SSD1681/SSD1683 expose no ID register.
 
 
 - Broker host `homeassistant.local` resolves via mDNS from the ESP. On `MQTT
   disconnected` / DNS failure, substitute the hub IP in `mqtt.broker`.
-- E-paper is B/W SSD1681 (confirmed). If the panel never initializes, set
-  `reset_duration: 2ms` on the `waveshare_epaper` block (WeAct/Rev-2.1 timing).
+- E-paper is WeAct 1.54" (200×200) or WeAct 4.2" (400×300) B/W, selected in the web UI (Device → '4.2 inch panel'). If the panel never initializes, check the rail, wiring, and BUSY line.
 - `gfonts://Roboto` needs network at first compile. Offline: drop a local `.ttf` into
   `firmware/co2-node/fonts/` and point `font.file` at it.
 - Entity naming hinges on the `${friendly_name}` prefix in each sensor `name`. If HA

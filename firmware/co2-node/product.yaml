@@ -9,7 +9,6 @@ substitutions:
   ap_ssid: "co2-setup-XXXX"
   ap_password_sub: "REPLACE-12CHAR"
   ota_password: !secret ota_password
-  web_password: !secret web_password
 packages:
   core: !include co2-node-core.yaml
   gift: !include co2-node-gift.yaml
