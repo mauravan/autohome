@@ -1,11 +1,55 @@
 #include "runtime_epaper.h"
 
+#include <esp_attr.h>
+
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
 namespace esphome::runtime_epaper {
 static const char *const TAG = "runtime_epaper";
+
+namespace {
+struct RenderState {
+  uint32_t magic;              // signature gate below is valid
+  uint32_t signature;
+  uint32_t panel_magic;        // the panel is showing an image this firmware wrote
+  uint16_t partial_refreshes;  // Mode 2 refreshes since the last Mode 1 cleanup
+};
+RTC_NOINIT_ATTR RenderState render_state;
+constexpr uint32_t RENDER_MAGIC = 0x434F3245u;  // arbitrary non-zero marker
+}  // namespace
+
+bool RuntimeEPaper::needs_render(uint32_t signature) const {
+  return render_state.magic != RENDER_MAGIC || render_state.signature != signature;
+}
+
+void RuntimeEPaper::commit_render(uint32_t signature) {
+  render_state.magic = RENDER_MAGIC;
+  render_state.signature = signature;
+}
+
+void RuntimeEPaper::force_render() { render_state.magic = 0; }
+
+void WaveformEPaperSSD1683::refresh_screen(bool /*partial*/) {
+  const bool full = this->full_;
+  this->full_ = true;  // one-shot: anything not explicitly marked partial refreshes fully
+  ESP_LOGD(TAG, "Refresh: %s", full ? "Mode 1 (full)" : "Mode 2 (no flash)");
+  epaper_spi::EPaperSSD1683::refresh_screen(!full);
+}
+
+bool RuntimeEPaper::take_full_refresh_() {
+  if (this->force_full_ || render_state.panel_magic != RENDER_MAGIC) {
+    this->force_full_ = false;
+    render_state.partial_refreshes = 0;
+    return true;
+  }
+  if (++render_state.partial_refreshes >= this->partial_refresh_limit_) {
+    render_state.partial_refreshes = 0;
+    return true;
+  }
+  return false;
+}
 
 display::DisplayRotation RuntimeEPaper::add_90_(display::DisplayRotation r) {
   return static_cast<display::DisplayRotation>((static_cast<int>(r) + 90) % 360);
@@ -32,7 +76,9 @@ void RuntimeEPaper::setup() {
     panel->set_data_rate(this->data_rate_);
     panel->set_mode(this->mode_);
     panel->set_auto_clear(false);       // the outer forwards the page drawing
-    panel->set_full_update_every(1);    // every refresh is a full refresh
+    panel->set_full_update_every(1);   // keep upstream on a full-window transfer: this firmware redraws the
+                                       // whole page, so every refresh rewrites all panel RAM and the waveform
+                                       // is chosen in refresh_screen() instead
   }
   this->small_.set_reset_duration(2);
   this->large_.set_reset_duration(10);
@@ -40,6 +86,7 @@ void RuntimeEPaper::setup() {
 
   this->panel_ = this->requested_panel_;
   this->active_ = this->panel_ == PANEL_42 ? &this->large_ : &this->small_;
+  this->active_panel_ = this->panel_ == PANEL_42 ? &this->large_ : &this->small_;
   this->active_->setup();               // buffer + pins + SPI, no panel init yet
   if (this->panel_ == PANEL_42) {
     this->setup_42_ = true;
@@ -49,9 +96,10 @@ void RuntimeEPaper::setup() {
 }
 
 void RuntimeEPaper::update() {
-  if (this->active_ == nullptr)
+  if (this->active_ == nullptr || this->active_panel_ == nullptr)
     return;
 
+  this->active_panel_->set_full_refresh(this->take_full_refresh_());
   this->do_update_();                   // clears white, runs the current page lambda
   this->active_->update();              // starts the epaper_spi state machine
 
@@ -65,6 +113,8 @@ void RuntimeEPaper::update() {
       break;
     }
   }
+  if (!this->active_->is_updating())
+    render_state.panel_magic = RENDER_MAGIC;  // the panel now shows this image
 }
 
 void RuntimeEPaper::apply_panel_change() {
@@ -73,6 +123,7 @@ void RuntimeEPaper::apply_panel_change() {
 
   this->panel_ = this->requested_panel_;
   this->active_ = this->panel_ == PANEL_42 ? &this->large_ : &this->small_;
+  this->active_panel_ = this->panel_ == PANEL_42 ? &this->large_ : &this->small_;
   this->apply_rotations_();
 
   bool &done = this->panel_ == PANEL_42 ? this->setup_42_ : this->setup_154_;
@@ -81,6 +132,7 @@ void RuntimeEPaper::apply_panel_change() {
     done = true;
   }
   this->active_->request_full_update();
+  this->force_full_ = true;   // the newly selected panel may never have been written
   this->update();
 }
 
@@ -125,6 +177,7 @@ void RuntimeEPaper::dump_config() {
   ESP_LOGCONFIG(TAG, "Runtime E-Paper:");
   ESP_LOGCONFIG(TAG, "  Active panel: %s",
                 this->panel_ == PANEL_42 ? "4.2in 400x300" : "1.54in 200x200");
+  ESP_LOGCONFIG(TAG, "  Full refresh every: %u partial refreshes", this->partial_refresh_limit_);
   LOG_PIN("  DC Pin: ", this->dc_pin_);
   LOG_PIN("  Reset Pin: ", this->reset_pin_);
   LOG_PIN("  Busy Pin: ", this->busy_pin_);

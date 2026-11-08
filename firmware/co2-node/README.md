@@ -130,7 +130,8 @@ Same `co2-node-core.yaml` logic. When the C6 board is in hand, three changes:
 - `wifi.power_save_mode: LIGHT` — modem sleeps during the ~30 s SCD41 measurement phase (the largest idle draw).
 - `wifi.output_power: 8.5dB` — cuts TX peak current; raise toward 20 dB if range is marginal.
 - `i2c.scan: false` — no boot-time bus probe.
-- Single e-paper full refresh per wake (was two renders + a 1 s delay; `component.update` blocks on BUSY, so one render is safe).
+- Single gated e-paper refresh per wake (was two renders + a 1 s delay; `component.update`/`update()` blocks on BUSY, so one render is safe).
+- No-flash e-paper waveform: normal refreshes use the controller's display Mode 2 (`0x22=0xFC`, direct pixel update, no inversion), with a full Mode 1 cleanup (`0x22=0xF7`) on cold boot, on panel switch, and every Nth partial refresh (`# · Full refresh every` in the web UI, default 24 = `DEFAULT_PARTIAL_REFRESHES_BEFORE_FULL`).
 - `cpu_frequency: 80MHZ` — minimum for the C3.
 - `deep_sleep` after publish; SCD41 `power_down` (0x36e0) → ~0.8 µA between wakes.
 
@@ -143,7 +144,7 @@ Estimates, not measured. Per 5-min wake after the optimizations above:
 | Boot + WiFi associate + DHCP | ~2–3 s | overlaps the first measurement |
 | 5× SCD41 single-shot | ~30 s | radio idles in modem sleep; dominates active energy |
 | MQTT connect + publish | ~1 s | short TX burst |
-| 1× e-paper full refresh | ~3 s | single render |
+| 1× e-paper refresh | ~1 s | single render, Mode 2 (measured 0.77 s vs 2.9 s for a Mode 1 cleanup) |
 | Deep sleep | ~4.5 min | board LDO quiescent current dominates |
 
 - The ~30 s measurement phase is ~85 % of active energy. Biggest levers, in order: raise `sleep_duration` (cadence), then cut active time (fewer samples / renders).

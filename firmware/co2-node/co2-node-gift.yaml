@@ -43,7 +43,24 @@ esphome:
             then:
               - display.page.show: page_setup
               - delay: 1s
-              - component.update: epaper_display
+              - lambda: |-
+                  uint32_t sig = 0x53455455u;   // 'SETU'
+                  auto mix = [&sig](uint32_t v) { sig = (sig ^ v) * 16777619u; };
+                  bool connected = id(wifi_component).is_connected();
+                  mix((uint32_t) connected);
+                  if (connected) {
+                    auto ips = id(wifi_component).wifi_sta_ip_addresses();
+                    if (!ips.empty()) {
+                      char ip_buf[40];
+                      ips[0].str_to(ip_buf);
+                      for (const char *pp = ip_buf; *pp; pp++) mix((uint8_t) *pp);
+                    }
+                  }
+                  if (id(epaper_display)->needs_render(sig)) {
+                    ESP_LOGD("screen", "setup render sig=%08x", (unsigned) sig);
+                    id(epaper_display).update();
+                    id(epaper_display)->commit_render(sig);
+                  }
 
 wifi:
   ap:
@@ -61,9 +78,6 @@ globals:
   - id: setup_deadline
     type: uint32_t
     restore_value: false
-    initial_value: '0'
-  - id: setup_shown          # e-paper re-render latch, page_setup
-    type: uint8_t
     initial_value: '0'
   - id: ap_password
     type: std::string
@@ -290,10 +304,22 @@ interval:
             display.is_displaying_page: page_setup
           then:
             - lambda: |-
-                uint8_t now = id(wifi_component).is_connected() ? 1 : 0;
-                if (now != id(setup_shown)) {
-                  id(setup_shown) = now;
+                uint32_t sig = 0x53455455u;   // 'SETU'
+                auto mix = [&sig](uint32_t v) { sig = (sig ^ v) * 16777619u; };
+                bool connected = id(wifi_component).is_connected();
+                mix((uint32_t) connected);
+                if (connected) {
+                  auto ips = id(wifi_component).wifi_sta_ip_addresses();
+                  if (!ips.empty()) {
+                    char ip_buf[40];
+                    ips[0].str_to(ip_buf);
+                    for (const char *pp = ip_buf; *pp; pp++) mix((uint8_t) *pp);
+                  }
+                }
+                if (id(epaper_display)->needs_render(sig)) {
+                  ESP_LOGD("screen", "setup render sig=%08x", (unsigned) sig);
                   id(epaper_display).update();
+                  id(epaper_display)->commit_render(sig);
                 }
   - interval: 30s
     then:

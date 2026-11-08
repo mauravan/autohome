@@ -6,6 +6,22 @@
 
 namespace esphome::runtime_epaper {
 
+// SSD1683/SSD1681 whose refresh waveform the caller chooses per refresh. Upstream derives it from
+// update_count_, a plain member that restarts at 0 on every deep-sleep wake, so across wakes it can
+// only ever produce a full (flashing) refresh.
+class WaveformEPaperSSD1683 : public epaper_spi::EPaperSSD1683 {
+ public:
+  using epaper_spi::EPaperSSD1683::EPaperSSD1683;
+  void set_full_refresh(bool full) { this->full_ = full; }
+
+ protected:
+  void refresh_screen(bool partial) override;
+  bool full_{true};
+};
+
+// Mode 2 leaves ghosting behind; one Mode 1 refresh clears it. Overridden at boot from the
+// "Full refresh every" number entity (co2-node-core.yaml), which is restored from flash.
+constexpr uint16_t DEFAULT_PARTIAL_REFRESHES_BEFORE_FULL = 24;
 class RuntimeEPaper : public display::Display,
                       public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST,
                                             spi::CLOCK_POLARITY_LOW,
@@ -23,7 +39,10 @@ class RuntimeEPaper : public display::Display,
     return this->active_ != nullptr && this->requested_panel_ != this->panel_;
   }
   void apply_panel_change();
-
+  bool needs_render(uint32_t signature) const;
+  void commit_render(uint32_t signature);
+  void set_partial_refreshes_before_full(uint16_t n) { this->partial_refresh_limit_ = n; }
+  void force_render();
   void set_rotation(display::DisplayRotation rotation) override;
   void setup() override;
   void update() override;
@@ -60,10 +79,15 @@ class RuntimeEPaper : public display::Display,
       0x11, 0x01, 0x03,
   };
 
-  epaper_spi::EPaperSSD1683 small_{"WeAct-1.54", 200, 200, INIT_154, sizeof(INIT_154)};
-  epaper_spi::EPaperSSD1683 large_{"WeAct-4.2", 400, 300, INIT_42, sizeof(INIT_42)};
+  WaveformEPaperSSD1683 small_{"WeAct-1.54", 200, 200, INIT_154, sizeof(INIT_154)};
+  WaveformEPaperSSD1683 large_{"WeAct-4.2", 400, 300, INIT_42, sizeof(INIT_42)};
+
+  bool take_full_refresh_();
 
   epaper_spi::EPaperBase *active_{nullptr};
+  WaveformEPaperSSD1683 *active_panel_{nullptr};
+  bool force_full_{false};
+  uint16_t partial_refresh_limit_{DEFAULT_PARTIAL_REFRESHES_BEFORE_FULL};
   GPIOPin *dc_pin_{nullptr};
   GPIOPin *reset_pin_{nullptr};
   GPIOPin *busy_pin_{nullptr};
