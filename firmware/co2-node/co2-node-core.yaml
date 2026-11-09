@@ -97,6 +97,11 @@ wifi:
     then:
       - lambda: 'ESP_LOGI("boot", "wifi connected");'
 
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/Zurich"
+
 mqtt:
   id: mqtt_client
   broker: "${mqtt_broker_compile}"
@@ -280,6 +285,13 @@ sensor:
                     mix(q(id(battery_percent).state, 2.0f));
                     mix(((uint32_t) id(epaper_display)->get_native_width() << 16) |
                         (uint32_t) id(epaper_display)->get_native_height());
+                    if (id(epaper_display)->get_native_width() > 200) {
+                      auto t = id(sntp_time).now();
+                      mix(t.is_valid()
+                              ? ((uint32_t) t.day_of_month << 24 | (uint32_t) t.month << 16 |
+                                 (uint32_t) t.hour << 8 | (uint32_t) t.minute)
+                              : 0xFFFFFFFFu);
+                    }
                     for (char c : id(room_label).state)
                       mix((uint8_t) c);
                     if (id(epaper_display)->needs_render(sig)) {
@@ -666,12 +678,14 @@ display:
               }
             }
             it.line(0, 32, w, 32);
-            const float rh = (h - 32) / 3.0f;
+            const int footer_h = 30;
+            const float rh = (h - 32 - footer_h) / 3.0f;
             int c0 = 32 + (int)(rh * 0.5f);
             int c1 = 32 + (int)(rh * 1.5f);
             int c2 = 32 + (int)(rh * 2.5f);
             int l1 = 32 + (int)rh;
             int l2 = 32 + (int)(rh * 2.0f);
+            const int fy = h - footer_h;
             it.print(0, c0, id(font_icons_lg), TextAlign::CENTER_LEFT, "\ue7b0");
             if (isnan(id(co2_value).state)) {
               it.print(w, c0, id(font_value_lg), TextAlign::CENTER_RIGHT, "--");
@@ -691,6 +705,14 @@ display:
               it.print(w, c2, id(font_value_lg), TextAlign::CENTER_RIGHT, "-- %%");
             } else {
               it.printf(w, c2, id(font_value_lg), TextAlign::CENTER_RIGHT, "%.0f %%", id(humidity_value).state);
+            }
+            it.line(0, fy, w, fy);
+            auto t = id(sntp_time).now();
+            if (t.is_valid()) {
+              it.printf(w / 2, fy + footer_h / 2, id(font_label_lg), TextAlign::CENTER,
+                        "UPDATED %02d.%02d. %02d:%02d", t.day_of_month, t.month, t.hour, t.minute);
+            } else {
+              it.print(w / 2, fy + footer_h / 2, id(font_label_lg), TextAlign::CENTER, "UPDATED --.-- --:--");
             }
           } else {
             it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());

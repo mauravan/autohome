@@ -36,32 +36,33 @@ ids the dashboard already references (`sensor.top_floor_co2`, `_temperature`,
 | `secrets.yaml.example` | Template for git-ignored `secrets.yaml` |
 | `README.md` | This file |
 
-## Wiring (dev board: ESP32-C3 SuperMini / `esp32-c3-devkitm-1`)
+## Pinout schema (ESP32-C3 SuperMini / `esp32-c3-devkitm-1`)
 
-| Signal | ESP32-C3 GPIO | Note |
-|---|---|---|
-| SCD41 SDA | GPIO1 | I²C; breakout usually has 10 kΩ pull-ups to its VDD — ESPHome internal pulls are OFF so a powered-down SCD41 doesn't back-feed 3V3 |
-| SCD41 SCL | GPIO21 | Moved off GPIO3 to free ADC1_CH3 for the battery divider. GPIO21 = UART0 TX: ROM boot text may toggle SCL during reset, harmless once booted. Logger stays on native USB (GPIO18/19), NOT UART0 |
-| SCD41 VDD | switched 3V3 | P-MOSFET high side from battery board; GPIO20 gate HIGH = SCD41 powered. Give the rail 1 s settle (on_boot priority 600) before any I2C |
-| SCD41 GND | GND | |
-| EPD DIN (MOSI) | GPIO6 | |
-| EPD CLK (SCK) | GPIO4 | |
-| EPD CS | GPIO7 | |
-| EPD DC | GPIO5 | |
-| EPD RST | GPIO0 | |
-| EPD BUSY | GPIO10 | BUSY HIGH during update; `update()` blocks. "Boot loop + blank page" = EPD init before rail stable or BUSY never falling |
-| EPD VCC | switched 3V3 | Same MOSFET as SCD41. `ALWAYS_ON` must bring it up at switch setup (before display init); never drive CS/DC/RST/SCK/MOSI while this rail is 0 (back-powers the panel) |
-| EPD GND | GND | |
+Connect all grounds to the ESP32-C3 ground. This maps the configured sensor, display,
+and documented battery-board connections (VBAT/2 output and GND); cell/power-input terminals
+are board-specific and not identified here.
 
-GPIO2 / GPIO8 / GPIO9 (boot strapping, onboard LED, BOOT button) are left untouched.
-Battery monitor: the battery-management board presents **VBAT/2** on its ADC output →
-**GPIO3** (ADC1_CH3); the peripheral-power steering MOSFET gate → **GPIO20** (active-high,
-HIGH = SCD41 + EPD powered). GPIO2 is a boot-strapping pin and is **not** used for the divider —
-VBAT/2 sits below the ~2.475 V strap-high threshold at reset and would force download-boot.
-**GPIO20 is NOT an RTC pin** — it floats during deep-sleep. The external gate needs its own
-pull-down so the rail stays off in sleep, and the firmware re-asserts HIGH + 1 s settle on
-every wake before touching I2C or the panel. Gate *only* SCD41 if the EPD shares the rail
-unreliably: EPD idle is ~0 anyway, SCD41 gated is the real saving.
+| Module | Pin / signal | Connect to | Notes |
+|---|---|---|---|
+| SCD41 sensor | SDA | GPIO1 | I²C. Breakouts commonly have 10 kΩ pull-ups to VDD; ESPHome internal pulls are disabled so the unpowered sensor is not back-fed. |
+| SCD41 sensor | SCL | GPIO21 | I²C. GPIO21 is UART0 TX; ROM boot text may toggle it during reset. Logger uses native USB (GPIO18/19), not UART0. |
+| SCD41 sensor | VDD | Switched 3V3 rail | High-side P-MOSFET rail; allow 1 s to settle before I²C access. |
+| SCD41 sensor | GND | ESP32-C3 GND | Common ground. |
+| E-paper display | DIN (MOSI) | GPIO6 | SPI data to display; no MISO connection. |
+| E-paper display | CLK (SCK) | GPIO4 | SPI clock. |
+| E-paper display | CS | GPIO7 | Do not drive while display power is off. |
+| E-paper display | DC | GPIO5 | Do not drive while display power is off. |
+| E-paper display | RST | GPIO0 | Do not drive while display power is off. |
+| E-paper display | BUSY | GPIO10 | BUSY is high during update; display update blocks until it falls. |
+| E-paper display | VCC | Switched 3V3 rail | Same high-side rail as SCD41. Bring the rail up before display initialization; driving SPI/control pins while unpowered can back-power the panel. |
+| E-paper display | GND | ESP32-C3 GND | Common ground. |
+| Battery-management board | ADC output (VBAT/2) | GPIO3 (ADC1_CH3) | Firmware multiplies the reading by 2 to report cell voltage. Keep this divider off GPIO2: GPIO2 is a boot-strapping pin. |
+| Battery-management board | GND | ESP32-C3 GND | Common ADC reference. |
+| Peripheral-power P-MOSFET | Gate | GPIO20 | Active high: high turns on the switched 3V3 rail for SCD41 + display. GPIO20 floats during deep sleep; add an external gate pull-down. |
+
+GPIO2 / GPIO8 / GPIO9 remain unused (boot strapping, onboard LED, BOOT button).
+
+If the display cannot reliably share the switched rail, gate only the SCD41; e-paper idle draw is already ~0.
 
 ### If it works 1–2 wakes then sticks on BOOTING
 
@@ -131,6 +132,7 @@ Same `co2-node-core.yaml` logic. When the C6 board is in hand, three changes:
 - `wifi.output_power: 8.5dB` — cuts TX peak current; raise toward 20 dB if range is marginal.
 - `i2c.scan: false` — no boot-time bus probe.
 - Single gated e-paper refresh per wake (was two renders + a 1 s delay; `component.update`/`update()` blocks on BUSY, so one render is safe).
+- The 4.2" normal page shows the Zurich-local render time (`UPDATED DD.MM. HH:MM`) from SNTP. Its minute is included in the render signature, so the panel refreshes once per wake even when sensor values are unchanged; the 1.54" layout and skip-unchanged behavior are unchanged.
 - No-flash e-paper waveform: normal refreshes use the controller's display Mode 2 (`0x22=0xFC`, direct pixel update, no inversion), with a full Mode 1 cleanup (`0x22=0xF7`) on cold boot, on panel switch, and every Nth partial refresh (`# · Full refresh every` in the web UI, default 24 = `DEFAULT_PARTIAL_REFRESHES_BEFORE_FULL`).
 - `cpu_frequency: 80MHZ` — minimum for the C3.
 - `deep_sleep` after publish; SCD41 `power_down` (0x36e0) → ~0.8 µA between wakes.
