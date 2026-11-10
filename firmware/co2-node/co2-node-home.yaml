@@ -8,3 +8,8 @@ mqtt:
   username: !secret mqtt_username
   password: !secret mqtt_password
   enable_on_boot: true
+time:
+  - id: !extend sntp_time
+    servers:
+      - 192.168.178.1
+      - 0.pool.ntp.org

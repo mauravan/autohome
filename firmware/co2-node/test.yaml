@@ -2,7 +2,7 @@ substitutions:
   device_name: "co2-test"
   friendly_name: "CO2 Test"
   floor_label: "TEST"
-  mqtt_broker_compile: "homeassistant.local"
+  mqtt_broker_compile: "192.168.178.47"
   discovery_uid_generator: "mac"
   log_level: "DEBUG"
   ap_ssid: "co2-setup"

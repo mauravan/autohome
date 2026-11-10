@@ -8,9 +8,10 @@ external_components:
   - source:
       type: local
       path: components
-    components: [runtime_epaper]
+    components: [runtime_epaper, scd4x]
 
 esphome:
+  includes: [sntp_poll.h]
   on_boot:
     - priority: 650
       then:
@@ -109,12 +110,14 @@ ota:
 wifi:
   id: wifi_component
   fast_connect: true   # reconnect to last-known AP without a full scan
-  power_save_mode: LIGHT   # modem sleeps while idle (during SCD41 single-shots); ~5x lower idle RX current
+  power_save_mode: none    # LIGHT broke the first 4-way handshake (Authentication Failed, +6.3 s/wake)
   output_power: 8.5dB      # cut TX peak current; raise toward 20dB only if range is marginal
   reboot_timeout: 0s
   on_connect:
     then:
-      - lambda: 'ESP_LOGI("boot", "wifi connected");'
+      - lambda: |-
+          if (!id(sntp_time).now().is_valid()) sntp_poll_now();   // cold boot only; timer wakes keep RTC time
+          ESP_LOGI("boot", "wifi connected");
 
 time:
   - platform: sntp
@@ -235,6 +238,14 @@ globals:
     type: bool
     restore_value: false
     initial_value: 'false'
+  - id: last_reading_millis
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: last_updated_ts
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
   - id: mqtt_broker_addr
     type: std::string
     restore_value: false
@@ -277,10 +288,13 @@ sensor:
             return isnan(off) ? 0.0f : off;
       on_value:
         then:
-          - lambda: 'id(reading_done) = true;'   # a reading landed: stop the boot retry loop now
           - lambda: |-
-              ESP_LOGI("mqtt_tx", "mqtt co2=%.0f ppm temp=%.2f C hum=%.2f %% (auto-published to ${device_name}/sensor/.../state)",
-                id(co2_value).state, id(temperature_value).state, x);
+              id(reading_done) = true;
+              id(last_reading_millis) = millis();   // anchor for "last updated" wall-time back-computation
+          - lambda: |-
+              ESP_LOGI("mqtt_tx", "readings co2=%.0f ppm temp=%.2f C hum=%.2f %% (%s)",
+                id(co2_value).state, id(temperature_value).state, x,
+                id(mqtt_client).is_connected() ? "published" : "sent when MQTT connects");
           - lambda: |-
               // Battery was averaged at boot (before MQTT connected); re-publish the averaged
               // level now that the broker is up. battery_percent has no filter, so publish_state
@@ -518,6 +532,55 @@ script:
           }
       - component.update: scd41_sensor
       - delay: 6s
+  - id: render_normal_page
+    mode: single
+    then:
+      - lambda: |-
+          // "Last updated" wall time. With a reading this wake: reading time,
+          // back-computed from SNTP once valid (stable while awake: now() and
+          // millis() advance together). Without a reading: wake/boot time.
+          // No valid wall clock yet: 0 -> page renders the placeholder.
+          id(last_updated_ts) = 0;
+          auto t = id(sntp_time).now();
+          if (t.is_valid()) {
+            uint32_t now_ep = (uint32_t) t.timestamp;
+            uint32_t since = id(reading_done)
+                                 ? ((millis() - id(last_reading_millis)) / 1000u)
+                                 : (millis() / 1000u);
+            id(last_updated_ts) = now_ep > since ? now_ep - since : now_ep;
+          }
+          uint32_t sig = 2166136261u;   // FNV-1a
+          auto mix = [&sig](uint32_t v) { sig = (sig ^ v) * 16777619u; };
+          auto q = [](float v, float bucket) -> uint32_t {
+            if (isnan(v)) return 0xFFFFFFFFu;
+            float s = v / bucket;
+            return (uint32_t) ((int32_t) (s >= 0 ? s + 0.5f : s - 0.5f) + 100000);
+          };
+          mix(q(id(co2_value).state, 25.0f));
+          mix(q(id(temperature_value).state, 0.5f));
+          mix(q(id(humidity_value).state, 2.0f));
+          mix(q(id(battery_percent).state, 2.0f));
+          mix(((uint32_t) id(epaper_display)->get_native_width() << 16) |
+              (uint32_t) id(epaper_display)->get_native_height());
+          if (id(epaper_display)->get_native_width() > 200) {
+            if (id(last_updated_ts) != 0) {
+              auto rt = ESPTime::from_epoch_local((time_t) id(last_updated_ts));
+              mix((uint32_t) rt.day_of_month << 24 | (uint32_t) rt.month << 16 |
+                  (uint32_t) rt.hour << 8 | (uint32_t) rt.minute);
+            } else {
+              mix(0xFFFFFFFFu);
+            }
+            mix(q(id(sleep_interval).state, 1.0f));
+          }
+          for (char c : id(room_label).state)
+            mix((uint8_t) c);
+          if (id(epaper_display)->needs_render(sig)) {
+            ESP_LOGD("screen", "render sig=%08x", (unsigned) sig);
+            id(epaper_display).update();
+            id(epaper_display)->commit_render(sig);
+          } else {
+            ESP_LOGV("screen", "skip unchanged sig=%08x", (unsigned) sig);
+          }
   - id: finish_wake
     mode: single
     then:
@@ -530,57 +593,35 @@ script:
                 condition:
                   lambda: 'return !id(setup_mode);'
                 then:
-                  - if:
-                      condition:
-                        lambda: 'return id(epaper_display)->get_native_width() > 200 && !id(sntp_time).now().is_valid();'
+                  - if:              # cold boot: hold the boot page so the 1 s poll can show the
+                      condition:     # WIFI/MQTT checkmarks while the gate is still closed
+                        display.is_displaying_page: page_boot
                       then:
                         - wait_until:
                             condition:
-                              lambda: 'return id(sntp_time).now().is_valid();'
-                            timeout: 10s
+                              lambda: 'return id(allow_sleep);'
+                            timeout: 60s
                   - display.page.show: page_normal
-                  - lambda: |-
-                      uint32_t sig = 2166136261u;   // FNV-1a
-                      auto mix = [&sig](uint32_t v) { sig = (sig ^ v) * 16777619u; };
-                      auto q = [](float v, float bucket) -> uint32_t {
-                        if (isnan(v)) return 0xFFFFFFFFu;
-                        float s = v / bucket;
-                        return (uint32_t) ((int32_t) (s >= 0 ? s + 0.5f : s - 0.5f) + 100000);
-                      };
-                      mix(q(id(co2_value).state, 25.0f));
-                      mix(q(id(temperature_value).state, 0.5f));
-                      mix(q(id(humidity_value).state, 2.0f));
-                      mix(q(id(battery_percent).state, 2.0f));
-                      mix(((uint32_t) id(epaper_display)->get_native_width() << 16) |
-                          (uint32_t) id(epaper_display)->get_native_height());
-                      if (id(epaper_display)->get_native_width() > 200) {
-                        auto t = id(sntp_time).now();
-                        mix(t.is_valid()
-                                ? ((uint32_t) t.day_of_month << 24 | (uint32_t) t.month << 16 |
-                                   (uint32_t) t.hour << 8 | (uint32_t) t.minute)
-                                : 0xFFFFFFFFu);
-                        mix(q(id(sleep_interval).state, 1.0f));
-                      }
-                      for (char c : id(room_label).state)
-                        mix((uint8_t) c);
-                      if (id(epaper_display)->needs_render(sig)) {
-                        ESP_LOGD("screen", "render sig=%08x", (unsigned) sig);
-                        id(epaper_display).update();
-                        id(epaper_display)->commit_render(sig);
-                      } else {
-                        ESP_LOGD("screen", "skip unchanged sig=%08x", (unsigned) sig);
-                      }
+                  - script.execute: render_normal_page
             - lambda: |-
                 float wake_s = millis() / 1000.0f;
                 ESP_LOGI("wake", "wake duration %.1f s", wake_s);
                 id(wake_duration).publish_state(wake_s);
-            - delay: 500ms
+            - wait_until:
+                condition:
+                  lambda: 'return id(allow_sleep) || id(setup_mode);'
+                timeout: 70s
             - if:
                 condition:
                   lambda: 'return id(allow_sleep);'
                 then:
                   - switch.turn_off: peripheral_power
                   - deep_sleep.enter: deep_sleep_id
+                else:
+                  - lambda: |-
+                      ESP_LOGW("wake", "not sleeping: gate closed (wifi=%d mqtt=%d clock=%d)",
+                               id(wifi_component).is_connected(), id(mqtt_client).is_connected(),
+                               id(sntp_time).now().is_valid());
 
 text:
   - platform: template
@@ -772,10 +813,10 @@ display:
             it.line(0, fy, w, fy);
             const int fmid = fy + footer_h / 2;
             it.print(0, fmid, id(font_icons_footer), TextAlign::CENTER_LEFT, "\ue8b5");
-            auto t = id(sntp_time).now();
-            if (t.is_valid()) {
+            if (id(last_updated_ts) != 0) {
+              auto rt = ESPTime::from_epoch_local((time_t) id(last_updated_ts));
               it.printf(36, fmid, id(font_label_lg), TextAlign::CENTER_LEFT,
-                        "%02d.%02d. %02d:%02d", t.day_of_month, t.month, t.hour, t.minute);
+                        "%02d.%02d. %02d:%02d", rt.day_of_month, rt.month, rt.hour, rt.minute);
             } else {
               it.print(36, fmid, id(font_label_lg), TextAlign::CENTER_LEFT, "--.-- --:--");
             }
@@ -821,15 +862,29 @@ display:
 
 deep_sleep:
   id: deep_sleep_id
-  sleep_duration: 15min
+  sleep_duration: 1min
   run_duration: 120s   # normal cap: measurement + render ≈ 35 s; gift setup overlay raises to 30 min while unprovisioned
 
 interval:
   - interval: 1s
     then:
       - lambda: |-
-          if (!id(setup_mode))
-            id(allow_sleep) = id(wifi_component).is_connected();
+          if (id(setup_mode)) return;      // gift setup window: gift's own interval owns allow_sleep
+          // Sleep only when the wake actually delivered what it can deliver:
+          //  - WiFi associated (nothing can be published without it)
+          //  - MQTT connected, unless no broker is configured (gift / local-only)
+          //  - wall clock known, only when the panel renders the footer timestamp
+          // Every wait is bounded so a dead broker/NTP/AP cannot pin the node awake.
+          bool wifi_ok = id(wifi_component).is_connected();
+          bool mqtt_ok = id(mqtt_optional) || id(mqtt_client).is_connected();
+          bool clock_ok = id(epaper_display)->get_native_width() <= 200 ||
+                          id(sntp_time).now().is_valid();
+          bool ready = millis() > 60000UL ||        // hard bound: all conditions
+                       (wifi_ok && mqtt_ok && (clock_ok || millis() > 20000UL));
+          if (ready && !id(allow_sleep))
+            ESP_LOGI("wake", "sleep gate open (wifi=%d mqtt=%d clock=%d) at %.1f s",
+                     wifi_ok, mqtt_ok, clock_ok, millis() / 1000.0f);
+          id(allow_sleep) = ready;
   - interval: 500ms
     then:
       - lambda: |-
@@ -851,3 +906,12 @@ interval:
                   id(boot_shown) = now;
                   id(epaper_display).update();
                 }
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            and:
+              - lambda: 'return id(wake_finished) && !id(setup_mode);'
+              - display.is_displaying_page: page_normal
+          then:
+            - script.execute: render_normal_page

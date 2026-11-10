@@ -572,7 +572,7 @@ display:
 
 deep_sleep:
   id: deep_sleep_id
-  sleep_duration: 5min
+  sleep_duration: 1min
   run_duration: 120s   # normal cap: measurement + render ≈ 35 s; gift setup overlay raises to 30 min while unprovisioned
 
 interval:
