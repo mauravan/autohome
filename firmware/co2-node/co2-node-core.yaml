@@ -31,10 +31,14 @@ esphome:
             float n = id(full_refresh_interval).state;
             if (!isnan(n) && n >= 1.0f && n <= 200.0f)
               id(epaper_display)->set_partial_refreshes_before_full((uint16_t) n);
+    - priority: 750      # after the power switch is set up (HARDWARE 800), before every I2C client (DATA 600)
+      then:
+        - switch.turn_off: peripheral_power
+        - lambda: 'delay(300);'     # rail discharged, so the SCD41 really power-cycles
+        - switch.turn_on: peripheral_power
+        - lambda: 'delay(1200);'    # SCD41 answers I2C only 1000 ms after power-up
     - priority: 600
       then:
-        - switch.turn_on: peripheral_power   # rail up first (ALWAYS_ON already did at setup); settle for SCD41 POR + EPD reset
-        - delay: 1s
         - repeat:
             count: 3
             then:
@@ -56,20 +60,35 @@ esphome:
                     - component.update: epaper_display   # boot page v1: cold start only
                   else:
                     - display.page.show: page_normal   # timer wake: no render, keep persisted sleeping image
-        - lambda: |-
-            id(scd41_sensor)->write_command((uint16_t) 0x36f6);
         - delay: 3s
+        - lambda: 'id(reading_done) = false;'
         - repeat:
             count: 3
             then:
-              - component.update: scd41_sensor
-              - delay: 6s
+              - if:
+                  condition:
+                    lambda: 'return !id(reading_done);'
+                  then:
+                    - component.update: scd41_sensor
+                    - wait_until:
+                        condition:
+                          lambda: 'return id(reading_done);'
+                        timeout: 12s
         - lambda: 'id(boot_readings_done) = true;'
-        - if:
+        - if:                       # a reading landed: let its on_value chain dwell, render and sleep
             condition:
-              lambda: 'return id(allow_sleep);'
+              lambda: 'return id(reading_done);'
             then:
-              - deep_sleep.enter: deep_sleep_id   # failsafe: SCD41 never published (I2C fail) -> still sleep, retry next wake
+              - wait_until:
+                  condition:
+                    lambda: 'return id(wake_finished);'
+                  timeout: 20s
+        - if:                       # no reading this wake: finish here so the panel never sleeps on the boot page
+            condition:
+              lambda: 'return !id(wake_finished);'
+            then:
+              - lambda: 'ESP_LOGW("boot", "no SCD41 reading this wake; rendering the normal page anyway");'
+              - script.execute: finish_wake
 
 esp32:
   board: esp32-c3-devkitm-1
@@ -166,6 +185,12 @@ font:
     id: font_value_lg
     size: 60
   - file: "fonts/MaterialIcons-Regular.ttf"
+    id: font_icons_footer
+    size: 24
+    glyphs:
+      - "\U0000e425"  # timer (configured interval)
+      - "\U0000e8b5"  # update (last updated)
+  - file: "fonts/MaterialIcons-Regular.ttf"
     id: font_icons_lg
     size: 36
     glyphs:
@@ -202,6 +227,18 @@ globals:
     type: bool
     restore_value: false
     initial_value: 'false'
+  - id: reading_done
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: wake_finished
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: mqtt_broker_addr
+    type: std::string
+    restore_value: false
+    initial_value: '"${mqtt_broker_compile}"'
 
 sensor:
   - platform: scd4x
@@ -219,10 +256,6 @@ sensor:
         sorting_group_id: grp_readings
         sorting_weight: 10
       filters:
-        - sliding_window_moving_average:
-            window_size: 3
-            send_every: 3
-            send_first_at: 3
         - offset: !lambda |-
             float off = id(co2_offset).state;
             return isnan(off) ? 0.0f : off;
@@ -232,11 +265,6 @@ sensor:
       web_server:
         sorting_group_id: grp_readings
         sorting_weight: 20
-      filters:
-        - sliding_window_moving_average:
-            window_size: 3
-            send_every: 3
-            send_first_at: 3
     humidity:
       id: humidity_value
       name: "${friendly_name} Humidity"
@@ -244,15 +272,12 @@ sensor:
         sorting_group_id: grp_readings
         sorting_weight: 30
       filters:
-        - sliding_window_moving_average:
-            window_size: 3
-            send_every: 3
-            send_first_at: 3
         - offset: !lambda |-
             float off = id(hum_offset).state;
             return isnan(off) ? 0.0f : off;
       on_value:
         then:
+          - lambda: 'id(reading_done) = true;'   # a reading landed: stop the boot retry loop now
           - lambda: |-
               ESP_LOGI("mqtt_tx", "mqtt co2=%.0f ppm temp=%.2f C hum=%.2f %% (auto-published to ${device_name}/sensor/.../state)",
                 id(co2_value).state, id(temperature_value).state, x);
@@ -264,54 +289,20 @@ sensor:
               if (!isnan(id(battery_percent).state))
                 id(battery_percent).publish_state(id(battery_percent).state);
           - lambda: |-
-              // SCD41 -> sleep (power_down, 0x36e0); ~0.8 uA until next wake_up.
+              // SCD41 -> power_down (0x36e0); the next wake power-cycles the rail (on_boot priority 750).
               id(scd41_sensor)->write_command((uint16_t) 0x36e0);
           - if:
               condition:
-                lambda: 'return !id(setup_mode);'
+                display.is_displaying_page: page_boot
               then:
-                - display.page.show: page_normal
                 - lambda: |-
-                    uint32_t sig = 2166136261u;   // FNV-1a
-                    auto mix = [&sig](uint32_t v) { sig = (sig ^ v) * 16777619u; };
-                    auto q = [](float v, float bucket) -> uint32_t {
-                      if (isnan(v)) return 0xFFFFFFFFu;
-                      float s = v / bucket;
-                      return (uint32_t) ((int32_t) (s >= 0 ? s + 0.5f : s - 0.5f) + 100000);
-                    };
-                    mix(q(id(co2_value).state, 25.0f));
-                    mix(q(id(temperature_value).state, 0.5f));
-                    mix(q(id(humidity_value).state, 2.0f));
-                    mix(q(id(battery_percent).state, 2.0f));
-                    mix(((uint32_t) id(epaper_display)->get_native_width() << 16) |
-                        (uint32_t) id(epaper_display)->get_native_height());
-                    if (id(epaper_display)->get_native_width() > 200) {
-                      auto t = id(sntp_time).now();
-                      mix(t.is_valid()
-                              ? ((uint32_t) t.day_of_month << 24 | (uint32_t) t.month << 16 |
-                                 (uint32_t) t.hour << 8 | (uint32_t) t.minute)
-                              : 0xFFFFFFFFu);
-                    }
-                    for (char c : id(room_label).state)
-                      mix((uint8_t) c);
-                    if (id(epaper_display)->needs_render(sig)) {
-                      ESP_LOGD("screen", "render sig=%08x", (unsigned) sig);
-                      id(epaper_display).update();
-                      id(epaper_display)->commit_render(sig);
-                    } else {
-                      ESP_LOGD("screen", "skip unchanged sig=%08x", (unsigned) sig);
-                    }
-          - lambda: |-
-              float wake_s = millis() / 1000.0f;
-              ESP_LOGI("wake", "wake duration %.1f s", wake_s);
-              id(wake_duration).publish_state(wake_s);
-          - delay: 500ms
-          - if:
-              condition:
-                lambda: 'return id(allow_sleep);'
-              then:
-                - switch.turn_off: peripheral_power
-                - deep_sleep.enter: deep_sleep_id
+                    // Re-arm the 1 s boot poll after this render so it does not redraw the same image.
+                    id(boot_shown) = (uint8_t) ((id(wifi_component).is_connected() ? 1 : 0)
+                                    | (id(mqtt_client).is_connected() ? 2 : 0)
+                                    | (id(mqtt_optional) ? 4 : 0));
+                - lambda: 'id(epaper_display).update();'
+                - delay: 3s            # checkmark dwell: the reading is on the glass before the page flips
+          - script.execute: finish_wake
   - platform: template
     id: wake_duration
     name: "${friendly_name} Wake Duration"
@@ -513,23 +504,83 @@ script:
       - delay: 1s
       - lambda: 'id(scd41_sensor)->write_command((uint16_t) 0x36f6);'
       - delay: 1s
-      - repeat:
-          count: 3
+      - lambda: |-
+          auto *s = id(scd41_sensor);
+          float t = id(temp_offset).state;
+          if (!isnan(t)) {
+            s->set_temperature_offset(t);
+            s->write_command((uint16_t) 0x241d, (uint16_t) (t * (65536.0f / 175.0f)));
+          }
+          float a = id(altitude).state;
+          if (!isnan(a)) {
+            s->set_altitude_compensation((uint16_t) a);
+            s->write_command((uint16_t) 0x2427, (uint16_t) a);
+          }
+      - component.update: scd41_sensor
+      - delay: 6s
+  - id: finish_wake
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(wake_finished);'
           then:
+            - lambda: 'id(wake_finished) = true;'
+            - if:
+                condition:
+                  lambda: 'return !id(setup_mode);'
+                then:
+                  - if:
+                      condition:
+                        lambda: 'return id(epaper_display)->get_native_width() > 200 && !id(sntp_time).now().is_valid();'
+                      then:
+                        - wait_until:
+                            condition:
+                              lambda: 'return id(sntp_time).now().is_valid();'
+                            timeout: 10s
+                  - display.page.show: page_normal
+                  - lambda: |-
+                      uint32_t sig = 2166136261u;   // FNV-1a
+                      auto mix = [&sig](uint32_t v) { sig = (sig ^ v) * 16777619u; };
+                      auto q = [](float v, float bucket) -> uint32_t {
+                        if (isnan(v)) return 0xFFFFFFFFu;
+                        float s = v / bucket;
+                        return (uint32_t) ((int32_t) (s >= 0 ? s + 0.5f : s - 0.5f) + 100000);
+                      };
+                      mix(q(id(co2_value).state, 25.0f));
+                      mix(q(id(temperature_value).state, 0.5f));
+                      mix(q(id(humidity_value).state, 2.0f));
+                      mix(q(id(battery_percent).state, 2.0f));
+                      mix(((uint32_t) id(epaper_display)->get_native_width() << 16) |
+                          (uint32_t) id(epaper_display)->get_native_height());
+                      if (id(epaper_display)->get_native_width() > 200) {
+                        auto t = id(sntp_time).now();
+                        mix(t.is_valid()
+                                ? ((uint32_t) t.day_of_month << 24 | (uint32_t) t.month << 16 |
+                                   (uint32_t) t.hour << 8 | (uint32_t) t.minute)
+                                : 0xFFFFFFFFu);
+                        mix(q(id(sleep_interval).state, 1.0f));
+                      }
+                      for (char c : id(room_label).state)
+                        mix((uint8_t) c);
+                      if (id(epaper_display)->needs_render(sig)) {
+                        ESP_LOGD("screen", "render sig=%08x", (unsigned) sig);
+                        id(epaper_display).update();
+                        id(epaper_display)->commit_render(sig);
+                      } else {
+                        ESP_LOGD("screen", "skip unchanged sig=%08x", (unsigned) sig);
+                      }
             - lambda: |-
-                auto *s = id(scd41_sensor);
-                float t = id(temp_offset).state;
-                if (!isnan(t)) {
-                  s->set_temperature_offset(t);
-                  s->write_command((uint16_t) 0x241d, (uint16_t) (t * (65536.0f / 175.0f)));
-                }
-                float a = id(altitude).state;
-                if (!isnan(a)) {
-                  s->set_altitude_compensation((uint16_t) a);
-                  s->write_command((uint16_t) 0x2427, (uint16_t) a);
-                }
-            - component.update: scd41_sensor
-            - delay: 6s
+                float wake_s = millis() / 1000.0f;
+                ESP_LOGI("wake", "wake duration %.1f s", wake_s);
+                id(wake_duration).publish_state(wake_s);
+            - delay: 500ms
+            - if:
+                condition:
+                  lambda: 'return id(allow_sleep);'
+                then:
+                  - switch.turn_off: peripheral_power
+                  - deep_sleep.enter: deep_sleep_id
 
 text:
   - platform: template
@@ -614,22 +665,28 @@ display:
               int y = 40 + (int)(rh * (i + 0.5f));
               it.print(0, y, id(font_label_lg), TextAlign::TOP_LEFT, rows[i]);
             }
-            if (id(wifi_component).is_connected()) {
-              int yw = 40 + (int)(rh * 1.5f);
-              it.print(w, yw, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
-            }
-            if (id(mqtt_client).is_connected() || id(mqtt_optional)) {
-              int ym = 40 + (int)(rh * 2.5f);
-              it.print(w, ym, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
-            }
-            // SENSOR check omitted: single-shot results arrive later; page flips to normal on first reading.
+            int yw = 40 + (int)(rh * 1.5f);
             if (id(wifi_component).is_connected()) {
               auto ips = id(wifi_component).wifi_sta_ip_addresses();
               if (!ips.empty()) {
                 char ip_buf[40];
                 ips[0].str_to(ip_buf);
-                it.printf(0, h - 34, id(font_label_lg), "%s", ip_buf);
+                it.print(w - 34, yw, id(font_label_lg), TextAlign::TOP_RIGHT, ip_buf);
               }
+              it.print(w, yw, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
+            }
+            int ym = 40 + (int)(rh * 2.5f);
+            it.print(w - 34, ym, id(font_label_lg), TextAlign::TOP_RIGHT,
+                     id(mqtt_optional) ? "not configured" : id(mqtt_broker_addr).c_str());
+            if (id(mqtt_client).is_connected() || id(mqtt_optional)) {
+              it.print(w, ym, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
+            }
+            int ys = 40 + (int)(rh * 3.5f);
+            if (!isnan(id(co2_value).state) && !isnan(id(temperature_value).state) &&
+                !isnan(id(humidity_value).state)) {
+              it.printf(w - 34, ys, id(font_label_lg), TextAlign::TOP_RIGHT, "%.0fppm %.1fC %.0f%%",
+                        id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
+              it.print(w, ys, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
             }
           } else {
             it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
@@ -650,8 +707,14 @@ display:
             }
             it.print(0, 100, id(font_label), "MQTT...");
             if (id(mqtt_client).is_connected() || id(mqtt_optional)) { it.print(200, 100, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca"); }
-            it.print(0, 130, id(font_label), "SENSOR...");
-            // SENSOR check omitted: single-shot results arrive later; page flips to normal on first reading.
+            if (!isnan(id(co2_value).state) && !isnan(id(temperature_value).state) &&
+                !isnan(id(humidity_value).state)) {
+              it.printf(0, 130, id(font_label), "%.0f %.1f %.0f",
+                        id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
+              it.print(200, 130, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca");
+            } else {
+              it.print(0, 130, id(font_label), "SENSOR...");
+            }
             if (id(wifi_component).is_connected()) {
               auto ips = id(wifi_component).wifi_sta_ip_addresses();
               if (!ips.empty()) {
@@ -707,13 +770,21 @@ display:
               it.printf(w, c2, id(font_value_lg), TextAlign::CENTER_RIGHT, "%.0f %%", id(humidity_value).state);
             }
             it.line(0, fy, w, fy);
+            const int fmid = fy + footer_h / 2;
+            it.print(0, fmid, id(font_icons_footer), TextAlign::CENTER_LEFT, "\ue8b5");
             auto t = id(sntp_time).now();
             if (t.is_valid()) {
-              it.printf(w / 2, fy + footer_h / 2, id(font_label_lg), TextAlign::CENTER,
-                        "UPDATED %02d.%02d. %02d:%02d", t.day_of_month, t.month, t.hour, t.minute);
+              it.printf(36, fmid, id(font_label_lg), TextAlign::CENTER_LEFT,
+                        "%02d.%02d. %02d:%02d", t.day_of_month, t.month, t.hour, t.minute);
             } else {
-              it.print(w / 2, fy + footer_h / 2, id(font_label_lg), TextAlign::CENTER, "UPDATED --.-- --:--");
+              it.print(36, fmid, id(font_label_lg), TextAlign::CENTER_LEFT, "--.-- --:--");
             }
+            if (!isnan(id(sleep_interval).state)) {
+              it.printf(w - 38, fmid, id(font_label_lg), TextAlign::CENTER_RIGHT, "%.0f min", id(sleep_interval).state);
+            } else {
+              it.print(w - 38, fmid, id(font_label_lg), TextAlign::CENTER_RIGHT, "-- min");
+            }
+            it.print(w, fmid, id(font_icons_footer), TextAlign::CENTER_RIGHT, "\ue425");
           } else {
             it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
             {
