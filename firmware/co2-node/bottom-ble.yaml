@@ -1,0 +1,20 @@
+substitutions:
+  device_name: "bottom-floor-co2"
+  friendly_name: "Bottom Floor"
+  ble_name: "Bottom Flr"
+  floor_label: "BOTTOM FLOOR"
+  ap_ssid: "co2-setup-bottom"
+  ap_password_sub: "d1dx5h9q"
+  log_level: "NONE"
+  ota_password: !secret ota_password
+
+esphome:
+  name: "${device_name}"
+  friendly_name: "${friendly_name}"
+  comment: "Battery CO2 sensor - bottom floor (BLE)"
+
+packages:
+  base: !include co2-node-base.yaml
+  ble: !include co2-node-ble.yaml
+  setup: !include co2-node-ble-setup.yaml
+  webui: !include co2-node-webui.yaml

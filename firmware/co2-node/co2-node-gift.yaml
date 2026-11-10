@@ -283,11 +283,11 @@ display:
               it.print(0, 160, id(font_label), "THEN FINISH");
             } else {
               it.print(0, 32, id(font_label), "1 JOIN WIFI");
-              it.printf(0, 32, id(font_label), "JOIN %s", "${ap_ssid}");
-              it.printf(0, 56, id(font_label), "PASS %s", "${ap_password_sub}");
-              it.print(0, 90, id(font_label), "2 OPEN");
-              it.print(0, 114, id(font_label), "192.168.4.1");
-              it.print(0, 150, id(font_label), "3 SETTINGS IN WEB");
+              it.printf(0, 56, id(font_label), "JOIN %s", "${ap_ssid}");
+              it.printf(0, 80, id(font_label), "PASS %s", "${ap_password_sub}");
+              it.print(0, 104, id(font_label), "2 OPEN");
+              it.print(0, 128, id(font_label), "192.168.4.1");
+              it.print(0, 152, id(font_label), "3 SETTINGS IN WEB");
               it.print(0, 176, id(font_label), "4 PRESS FINISH");
             }
           }

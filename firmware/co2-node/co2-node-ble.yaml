@@ -1,0 +1,66 @@
+substitutions:
+  light_sleep_enabled: "true"   # per-build debug override: esphome run X-ble.yaml -s light_sleep_enabled=false
+
+# BLE transport: BTHome v2 advertisements picked up by HA's BTHome
+# integration. No wifi/mqtt/time here — the node wakes, measures, advertises
+# for `duration`, renders the e-paper, and deep-sleeps with WiFi off.
+# `ble_name` is set per build and MUST stay <= 10 chars so the full payload
+# (battery + temp + humidity + CO2 + name) fits the 31-byte advertisement.
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [runtime_epaper, scd4x, bthome_adv]
+
+esp32_ble:
+  id: ble_hub
+  name: "${device_name}"
+  enable_on_boot: false
+  disable_bt_logs: true
+  max_connections: 1
+
+bthome_adv:
+  id: bthome
+  ble_id: ble_hub
+  name: "${ble_name}"
+  co2: co2_value
+  temperature: temperature_value
+  humidity: humidity_value
+  battery: battery_percent
+  duration: 700ms
+  interval: 100ms
+  tx_power: 0dBm
+
+esphome:
+  on_boot:
+    - priority: 790   # after the switch + restoring globals (HARDWARE 800), before base's
+      then:           # 750/100 readers of allow_light_sleep. At the old priority 90 those
+                      # readers had already evaluated the flag as false on every wake; only
+                      # cold boots ever took the light-sleep path, and only because the boot
+                      # render's 1 s delay yields across setup — an accident, and the root
+                      # of the cold-boot failures.
+        - lambda: |-
+            id(allow_light_sleep) = ${light_sleep_enabled};
+            id(link_label) = "BLE";
+            id(data_label) = "BTHOME";
+            id(data_detail) = "";
+            id(ip_text) = "";
+
+script:
+  - id: !extend transport_publish
+    then:
+      - ble.enable:
+      - lambda: 'id(bthome).publish();'
+
+interval:
+  - interval: 100ms
+    then:
+      - lambda: |-
+          id(link_ok) = id(ble_hub).is_active();
+          id(data_ok) = id(bthome).is_advertising() || id(bthome).is_done();
+          if (id(bthome).is_done() || millis() > 25000) {
+            id(transport_ready) = true;
+            // Open the sleep gate now; base's 1 s interval would otherwise add up to 1 s.
+            if (!id(setup_mode))
+              id(allow_sleep) = true;
+          }

@@ -1,0 +1,94 @@
+# WiFi + MQTT + SNTP transport. Included by co2-node-core.yaml so existing
+# builds keep their exact runtime behavior; the base file owns everything else.
+substitutions:
+  discovery_uid_generator: "legacy"
+
+globals:
+  - id: mqtt_optional
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: mqtt_broker_addr
+    type: std::string
+    restore_value: false
+    initial_value: '"${mqtt_broker_compile}"'
+
+esphome:
+  on_boot:
+    - priority: 90
+      then:
+        - lambda: |-
+            id(link_label) = "WIFI";
+            id(data_label) = "MQTT";
+
+wifi:
+  id: wifi_component
+  fast_connect: true   # reconnect to last-known AP without a full scan
+  power_save_mode: none    # LIGHT broke the first 4-way handshake (Authentication Failed, +6.3 s/wake)
+  output_power: 8.5dB      # cut TX peak current; raise toward 20dB only if range is marginal
+  reboot_timeout: 0s
+  on_connect:
+    then:
+      - lambda: |-
+          if (!id(sntp_time).now().is_valid()) sntp_poll_now();   // cold boot only; timer wakes keep RTC time
+          ESP_LOGI("boot", "wifi connected");
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/Zurich"
+
+mqtt:
+  id: mqtt_client
+  broker: "${mqtt_broker_compile}"
+  port: 1883
+  username: ""
+  password: ""
+  enable_on_boot: false
+  reboot_timeout: 0s
+  discovery: true       # discovery_prefix defaults to "homeassistant" (matches HA)
+  discovery_unique_id_generator: ${discovery_uid_generator}
+  birth_message:        # empty = disabled; deep-sleep must not read as unavailable
+  will_message:         # empty = disabled; no LWT offline while sleeping
+  shutdown_message:     # empty = disabled; clean disconnect must not clear availability
+  on_connect:
+    then:
+      - lambda: 'ESP_LOGI("boot", "mqtt connected");'
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (id(setup_mode)) return;      // gift setup window: gift's own interval owns allow_sleep
+          // Sleep only when the wake actually delivered what it can deliver:
+          //  - WiFi associated (nothing can be published without it)
+          //  - MQTT connected, unless no broker is configured (gift / local-only)
+          //  - wall clock known, only when the panel renders the footer timestamp
+          // Every wait is bounded so a dead broker/NTP/AP cannot pin the node awake.
+          bool wifi_ok = id(wifi_component).is_connected();
+          bool mqtt_ok = id(mqtt_optional) || id(mqtt_client).is_connected();
+          bool clock_ok = id(epaper_display)->get_native_width() <= 200 ||
+                          id(sntp_time).now().is_valid();
+          bool ready = millis() > 60000UL ||        // hard bound: all conditions
+                       (wifi_ok && mqtt_ok && (clock_ok || millis() > 20000UL));
+          if (ready && !id(transport_ready))
+            ESP_LOGI("wake", "sleep gate open (wifi=%d mqtt=%d clock=%d) at %.1f s",
+                     wifi_ok, mqtt_ok, clock_ok, millis() / 1000.0f);
+          id(link_ok) = wifi_ok;
+          id(data_ok) = mqtt_ok;
+          id(transport_ready) = ready;
+          id(data_detail) = id(mqtt_optional) ? "not configured" : id(mqtt_broker_addr);
+          if (wifi_ok) {
+            auto ips = id(wifi_component).wifi_sta_ip_addresses();
+            if (!ips.empty()) { char b[40]; ips[0].str_to(b); id(ip_text) = b; }
+          } else {
+            id(ip_text) = "";
+          }
+  - interval: 1s
+    then:
+      - lambda: |-
+          auto t = id(sntp_time).now();
+          if (t.is_valid()) {
+            id(wall_clock_epoch) = (uint32_t) t.timestamp;
+            id(wall_clock_valid) = true;
+          }

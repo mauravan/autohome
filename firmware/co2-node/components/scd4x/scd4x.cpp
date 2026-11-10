@@ -26,6 +26,8 @@ static const uint16_t SCD4X_CMD_GET_FEATURESET = 0x202f;
 static const float SCD4X_TEMPERATURE_OFFSET_MULTIPLIER = (1 << 16) / 175.0f;
 
 void SCD4XComponent::setup() {
+  if (this->skip_setup_identify_)
+    return;  // vendored: base's on_boot drives identify/config synchronously
   // the sensor needs 1000 ms to enter the idle state
   this->set_timeout(1000, [this]() { this->identify_(IDENTIFY_ATTEMPTS); });
 }

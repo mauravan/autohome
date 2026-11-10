@@ -295,6 +295,12 @@ sensor:
             static const float P_TBL[] = {0.0f,  5.0f, 10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f, 70.0f, 80.0f, 90.0f, 100.0f};
             const int N = (int) (sizeof(V_TBL) / sizeof(V_TBL[0]));
             float v = x;
+            if (isnan(v) || v < 2.0f) {
+              // A failed ADC read aggregates to 0 V; publishing that as 0 % would report
+              // a charged cell as empty. Keep the previous level instead.
+              ESP_LOGW("battery", "implausible cell %.3f V; battery level not updated", v);
+              return;
+            }
             float pct = 0.0f;
             if (v <= V_TBL[0]) {
               pct = 0.0f;

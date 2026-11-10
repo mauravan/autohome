@@ -1,0 +1,988 @@
+substitutions:
+  log_level: "NONE"
+  ota_password: !secret ota_password
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [runtime_epaper, scd4x]
+
+esphome:
+  includes: [sntp_poll.h]
+  on_boot:
+    - priority: 650
+      then:
+        - lambda: |-
+            float t = id(temp_offset).state;
+            if (!isnan(t)) id(scd41_sensor)->set_temperature_offset(t);
+            float a = id(altitude).state;
+            if (!isnan(a)) id(scd41_sensor)->set_altitude_compensation((uint16_t) a);
+    - priority: 650
+      then:
+        - lambda: |-
+            float m = id(sleep_interval).state;
+            if (!isnan(m) && m >= 1.0f && m <= 120.0f)
+              id(deep_sleep_id).set_sleep_duration((uint32_t) (m * 60000.0f));
+    - priority: 650
+      then:
+        - lambda: |-
+            float n = id(full_refresh_interval).state;
+            if (!isnan(n) && n >= 1.0f && n <= 200.0f)
+              id(epaper_display)->set_partial_refreshes_before_full((uint16_t) n);
+    - priority: 750      # after the power switch is set up (HARDWARE 800), before every I2C client (DATA 600)
+      then:
+        - lambda: |-
+            // On a timer wake the rail was already off for the whole sleep (GPIO20 floats low,
+            // external gate pull-down): only a cold boot starts with it driven high by the
+            // switch's ALWAYS_ON restore and needs a discharge before re-applying power.
+            if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED) {
+              id(peripheral_power).turn_off();
+              delay(300);
+            }
+            id(peripheral_power).turn_on();
+            id(rail_on_ms) = millis();
+            // BLE low-power path: stop scd4x's own timeout-based identify chain; base
+            // drives it synchronously at priority 100 so the CPU can sleep between steps.
+            if (id(allow_light_sleep) && !id(setup_mode)) {
+              id(scd41_sensor)->set_skip_setup_identify(true);
+            }
+            // The settle only matters before the first I2C/SPI traffic. On the light-sleep
+            // path a timer wake has none before the priority-100 sync-init, which enforces
+            // the POR window from rail_on_ms itself; cold boots keep it because the
+            // boot-page render runs before the POR sleep.
+            if (!(id(allow_light_sleep) && !id(setup_mode)) ||
+                esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED)
+              delay(300);
+    - priority: 100
+      then:
+        - if:
+            condition:
+              lambda: 'return !id(setup_mode);'
+            then:
+              - if:
+                  condition:
+                    lambda: 'return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED;'
+                  then:
+                    - display.page.show: page_boot
+                    - lambda: 'id(epaper_display)->force_render();'
+                    - delay: 1s                  # panel powered at setup; settle before first render
+                    - component.update: epaper_display   # boot page v1: cold start only
+                  else:
+                    - display.page.show: page_normal   # timer wake: no render, keep persisted sleeping image
+        - if:
+            condition:
+              lambda: 'return id(allow_light_sleep) && !id(setup_mode);'
+            then:
+              - lambda: |-
+                  // BLE low-power path: drive SCD41 identify/config synchronously so the CPU
+                  // can light-sleep through the datasheet waits. Mirrors identify_()/configure_():
+                  // POR idle window -> stop_periodic_measurement -> 500 ms -> configure.
+                  auto light_sleep_ms = [](uint32_t ms) {
+                    esp_sleep_enable_timer_wakeup((uint64_t) ms * 1000ULL);
+                    // A refused light sleep (held power lock, USB console attached) must not
+                    // skip the datasheet wait: SCD41 rejects commands < 500 ms after stop, so
+                    // 4 instant retries end at mark_failed() and the wake has no readings —
+                    // the "no sensor values" cold boot. Same fallback as the refresh pump in
+                    // components/runtime_epaper/runtime_epaper.cpp.
+                    if (esp_light_sleep_start() != ESP_OK)
+                      delay(ms);
+                  };
+                  // POR idle window: 1000 ms from rail-on (priority 750), partly elapsed already.
+                  uint32_t elapsed = millis() - id(rail_on_ms);
+                  if (elapsed < 1050)
+                    light_sleep_ms(1050 - elapsed);
+                  for (int attempt = 0; attempt < 4 && !id(scd41_sensor)->initialized_; attempt++) {
+                    id(scd41_sensor)->status_clear_error();
+                    if (id(scd41_sensor)->write_command((uint16_t) 0x3f86)) {  // stop_periodic_measurement (defensive; fresh POR)
+                      light_sleep_ms(550);   // datasheet: 500 ms after stop
+                      if (id(scd41_sensor)->configure_())
+                        break;
+                    }
+                    light_sleep_ms(1050);    // retry backoff (identify_retry_ uses 1000 ms)
+                  }
+                  if (!id(scd41_sensor)->initialized_)
+                    id(scd41_sensor)->mark_failed();   // mirrors identify_retry_ giving up; update actions become no-ops
+            else:
+              - wait_until:
+                  condition:
+                    lambda: 'return id(scd41_sensor)->initialized_;'
+                  timeout: 4s
+        - lambda: 'id(reading_done) = false;'
+        - repeat:
+            count: 3
+            then:
+              - if:
+                  condition:
+                    lambda: 'return !id(reading_done);'
+                  then:
+                    - component.update: scd41_sensor
+                    - lambda: |-
+                        // BLE low-power path: the single shot runs autonomously on the SCD41; light-sleep
+                        // the CPU through its 5000 ms window (datasheet max). 5600 ms covers the RTC slow
+                        // clock's worst-case skew. esp_timer advances across light sleep, so scd4x's
+                        // +5500 ms read timeout fires as soon as the loop resumes after the sleep.
+                        if (id(allow_light_sleep) && !id(setup_mode) && id(scd41_sensor)->initialized_) {
+                          esp_sleep_enable_timer_wakeup(5600000ULL);
+                          esp_light_sleep_start();
+                        }
+                    - wait_until:
+                        condition:
+                          lambda: 'return id(reading_done);'
+                        timeout: 12s
+        - lambda: 'id(boot_readings_done) = true;'
+        - if:                       # a reading landed: let its on_value chain dwell, render and sleep
+            condition:
+              lambda: 'return id(reading_done);'
+            then:
+              - wait_until:
+                  condition:
+                    lambda: 'return id(wake_finished);'
+                  timeout: 20s
+        - if:                       # no reading this wake: still finish the wake (advertise what
+            condition:              # we have, close the sleep gate); finish_wake's readiness check
+              lambda: 'return !id(wake_finished);'   # keeps the current page on the glass
+            then:
+              - lambda: 'ESP_LOGW("boot", "no SCD41 reading this wake");'
+              - script.execute: finish_wake
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework:
+    type: esp-idf
+  cpu_frequency: 80MHZ
+
+logger:
+  level: ${log_level}
+
+safe_mode:
+
+ota:
+  - platform: esphome
+    password: "${ota_password}"   # production NONE; DEBUG via `-s log_level DEBUG` (logging costs CPU + UART power)
+
+i2c:
+  sda: GPIO1
+  scl: GPIO21   # was GPIO3; freed GPIO3 (ADC1_CH3) for the battery sense line
+  scan: false   # no boot-time bus probe: saves a few transactions + delay
+  sda_pullup_enabled: false   # breakout 10k pulls to SCD41 VDD rail; internal pulls would back-power the sensor while the rail is off
+  scl_pullup_enabled: false
+
+spi:
+  clk_pin: GPIO4
+  mosi_pin: GPIO6
+
+font:
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_label
+    size: 16
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_co2
+    size: 44
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_temp
+    size: 44
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_humid
+    size: 44
+
+  - file: "fonts/MaterialIcons-Regular.ttf"
+    id: font_icons
+    size: 28
+    glyphs:
+      - "\U0000e7b0"  # co2
+      - "\U0000e1ff"  # device_thermostat (thermometer)
+      - "\U0000e798"  # water_drop
+  - file: "fonts/MaterialIcons-Regular.ttf"
+    id: font_status
+    size: 16
+    glyphs:
+      - "\U0000e5ca"  # check — connected
+      - "\U0000e1a4"  # battery_full
+      - "\U0000e19c"  # battery_alert
+      - "\U0000ebdd"  # battery_3_bar — half
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_label_lg
+    size: 24
+  - file: "fonts/Roboto-Regular.ttf"
+    id: font_value_lg
+    size: 60
+  - file: "fonts/MaterialIcons-Regular.ttf"
+    id: font_icons_footer
+    size: 24
+    glyphs:
+      - "\U0000e425"  # timer (configured interval)
+      - "\U0000e8b5"  # update (last updated)
+  - file: "fonts/MaterialIcons-Regular.ttf"
+    id: font_icons_lg
+    size: 36
+    glyphs:
+      - "\U0000e7b0"  # co2
+      - "\U0000e1ff"  # device_thermostat
+      - "\U0000e798"  # water_drop
+  - file: "fonts/MaterialIcons-Regular.ttf"
+    id: font_status_lg
+    size: 24
+    glyphs:
+      - "\U0000e5ca"  # check
+      - "\U0000e1a4"  # battery_full
+      - "\U0000e19c"  # battery_alert
+      - "\U0000ebdd"  # battery_3_bar
+
+globals:
+  - id: boot_shown
+    type: uint8_t
+    initial_value: '0'
+    restore_value: false
+  - id: allow_sleep
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: allow_light_sleep
+    type: bool
+    restore_value: false
+    initial_value: 'false'   # set true by the BLE transport package (WiFi builds: never)
+  - id: rail_on_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: setup_mode
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: boot_readings_done
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: reading_done
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: wake_finished
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: last_reading_millis
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: last_updated_ts
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: transport_ready
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: link_ok
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: data_ok
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: link_label
+    type: std::string
+    restore_value: false
+    initial_value: '"LINK"'
+  - id: data_label
+    type: std::string
+    restore_value: false
+    initial_value: '"DATA"'
+  - id: data_detail
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: ip_text
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: wall_clock_valid
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: wall_clock_epoch
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+
+sensor:
+  - platform: scd4x
+    id: scd41_sensor
+    address: 0x62
+    update_interval: never
+    automatic_self_calibration: true
+    altitude_compensation: 500MAMSL
+    temperature_offset: 1°C
+    measurement_mode: single_shot
+    co2:
+      id: co2_value
+      name: "${friendly_name} CO2"
+      web_server:
+        sorting_group_id: grp_readings
+        sorting_weight: 10
+      filters:
+        - offset: !lambda |-
+            float off = id(co2_offset).state;
+            return isnan(off) ? 0.0f : off;
+    temperature:
+      id: temperature_value
+      name: "${friendly_name} Temperature"
+      web_server:
+        sorting_group_id: grp_readings
+        sorting_weight: 20
+    humidity:
+      id: humidity_value
+      name: "${friendly_name} Humidity"
+      web_server:
+        sorting_group_id: grp_readings
+        sorting_weight: 30
+      filters:
+        - offset: !lambda |-
+            float off = id(hum_offset).state;
+            return isnan(off) ? 0.0f : off;
+      on_value:
+        then:
+          - lambda: |-
+              id(reading_done) = true;
+              id(last_reading_millis) = millis();   // anchor for "last updated" wall-time back-computation
+          - lambda: |-
+              ESP_LOGI("publish", "readings co2=%.0f ppm temp=%.2f C hum=%.2f %%", id(co2_value).state, id(temperature_value).state, x);
+          - lambda: |-
+              // Sample the cell now that a reading landed: the board has had seconds to
+              // settle (~10 s after rail-on on a cold boot) and no panel refresh is in
+              // flight — unlike a sample right after rail-on, which read the still-settling
+              // board and produced the false 0 %. One 3-sample window -> one averaged
+              // publish through the on_value guard; it feeds the boot-page redraw below,
+              // the normal-page render and the BTHome payload (finish_wake ->
+              // transport_publish). The old re-publish of the same state is subsumed.
+              for (int i = 0; i < 3; i++) {
+                if (id(battery_voltage)->is_ready())
+                  id(battery_voltage)->update();
+                delay(100);
+              }
+          - lambda: |-
+              // SCD41 -> power_down (0x36e0); the next wake power-cycles the rail (on_boot priority 750).
+              id(scd41_sensor)->write_command((uint16_t) 0x36e0);
+          - if:
+              condition:
+                display.is_displaying_page: page_boot
+              then:
+                - lambda: |-
+                    // Re-arm the 1 s boot poll after this render so it does not redraw the same image.
+                    id(boot_shown) = (uint8_t) ((id(link_ok) ? 1 : 0) | (id(data_ok) ? 2 : 0));
+                - lambda: 'id(epaper_display).update();'
+                - delay: 3s            # checkmark dwell: the reading is on the glass before the page flips
+          - script.execute: finish_wake
+  - platform: template
+    id: wake_duration
+    name: "${friendly_name} Wake Duration"
+    unit_of_measurement: "s"
+    accuracy_decimals: 1
+    device_class: duration
+    state_class: measurement
+    entity_category: diagnostic
+    update_interval: never
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 30
+  - platform: adc
+    id: battery_voltage
+    pin: GPIO3
+    attenuation: 12db
+    update_interval: never
+    name: "${friendly_name} Battery Voltage"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 25
+    filters:
+      - multiply: 2.0   # battery-management board presents VBAT/2; scale back to cell volts
+      - sliding_window_moving_average:
+          window_size: 3
+          send_every: 3
+          send_first_at: 3
+    on_value:
+      then:
+        - lambda: |-
+            // Li-ion OCV -> SoC, piecewise-linear (resting cell voltage). Linear 3.6-4.2 V was wrong:
+            // a Li-ion rests at ~82 % at 4.0 V and ~43 % at 3.8 V, not 67 % / 33 %.
+            static const float V_TBL[] = {3.00f, 3.55f, 3.68f, 3.74f, 3.77f, 3.79f, 3.82f, 3.87f, 3.92f, 3.98f, 4.06f, 4.20f};
+            static const float P_TBL[] = {0.0f,  5.0f, 10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f, 70.0f, 80.0f, 90.0f, 100.0f};
+            const int N = (int) (sizeof(V_TBL) / sizeof(V_TBL[0]));
+            float v = x;
+            if (isnan(v) || v < 2.0f) {
+              // A failed ADC read aggregates to 0 V; publishing that as 0 % would report
+              // a charged cell as empty. Keep the previous level instead.
+              ESP_LOGW("battery", "implausible cell %.3f V; battery level not updated", v);
+              return;
+            }
+            float pct = 0.0f;
+            if (v <= V_TBL[0]) {
+              pct = 0.0f;
+            } else if (v >= V_TBL[N - 1]) {
+              pct = 100.0f;
+            } else {
+              for (int i = 0; i < N - 1; i++) {
+                if (v >= V_TBL[i] && v <= V_TBL[i + 1]) {
+                  float t = (v - V_TBL[i]) / (V_TBL[i + 1] - V_TBL[i]);
+                  pct = P_TBL[i] + t * (P_TBL[i + 1] - P_TBL[i]);
+                  break;
+                }
+              }
+            }
+            id(battery_percent).publish_state(pct);
+            ESP_LOGI("battery", "cell %.3f V -> %.1f %%", v, pct);
+  - platform: template
+    id: battery_percent
+    name: "${friendly_name} Battery"
+    unit_of_measurement: "%"
+    device_class: battery
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: never
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 20
+
+number:
+  - platform: template
+    id: co2_offset
+    name: "ppm · CO2 offset"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -2000
+    max_value: 2000
+    step: 1
+    initial_value: 0
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 10
+    set_action:
+      then:
+        - lambda: 'id(co2_offset).publish_state(x);'
+        - script.execute: apply_calibration
+  - platform: template
+    id: temp_offset
+    name: "°C · Temperature offset"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -10
+    max_value: 10
+    step: 0.1
+    initial_value: 1.0
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 20
+    set_action:
+      then:
+        - lambda: 'id(temp_offset).publish_state(x);'
+        - script.execute: apply_calibration
+  - platform: template
+    id: hum_offset
+    name: "% · Humidity offset"
+    internal: true
+    entity_category: config
+    restore_value: true
+    min_value: -20
+    max_value: 20
+    step: 0.5
+    initial_value: 0
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 30
+    set_action:
+      then:
+        - lambda: 'id(hum_offset).publish_state(x);'
+        - script.execute: apply_calibration
+  - platform: template
+    id: altitude
+    name: "m · Altitude"
+    internal: true
+    entity_category: config
+    restore_value: true
+    min_value: 0
+    max_value: 3000
+    step: 10
+    initial_value: 1500
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: slider
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 40
+    set_action:
+      then:
+        - lambda: 'id(altitude).publish_state(x);'
+        - script.execute: apply_calibration
+  - platform: template
+    id: sleep_interval
+    name: "min · Sleep interval"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: 1
+    max_value: 120
+    step: 1
+    initial_value: 15
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: box
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 35
+    set_action:
+      then:
+        - lambda: |-
+            float m = x < 1.0f ? 1.0f : (x > 120.0f ? 120.0f : x);
+            id(deep_sleep_id).set_sleep_duration((uint32_t) (m * 60000.0f));
+  - platform: template
+    id: full_refresh_interval
+    name: "# · Full refresh every"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: 1
+    max_value: 200
+    step: 1
+    initial_value: 24
+    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    mode: box
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 40
+    set_action:
+      then:
+        - lambda: |-
+            float n = x < 1.0f ? 1.0f : (x > 200.0f ? 200.0f : x);
+            id(epaper_display)->set_partial_refreshes_before_full((uint16_t) n);
+
+script:
+  - id: transport_publish
+    mode: single
+    then: []
+
+  - id: apply_calibration
+    mode: restart
+    then:
+      - wait_until:
+          condition:
+            lambda: 'return id(boot_readings_done);'
+          timeout: 60s
+      - delay: 1s
+      - lambda: 'id(scd41_sensor)->write_command((uint16_t) 0x36f6);'
+      - delay: 1s
+      - lambda: |-
+          auto *s = id(scd41_sensor);
+          float t = id(temp_offset).state;
+          if (!isnan(t)) {
+            s->set_temperature_offset(t);
+            s->write_command((uint16_t) 0x241d, (uint16_t) (t * (65536.0f / 175.0f)));
+          }
+          float a = id(altitude).state;
+          if (!isnan(a)) {
+            s->set_altitude_compensation((uint16_t) a);
+            s->write_command((uint16_t) 0x2427, (uint16_t) a);
+          }
+      - component.update: scd41_sensor
+      - delay: 6s
+  - id: render_normal_page
+    mode: single
+    then:
+      - lambda: |-
+          // A wake without a reading must not overwrite a good image with placeholders: keep the
+          // last rendered values (their footer timestamp stays at that older reading).
+          if (!id(reading_done) && id(epaper_display)->panel_has_values()) {
+            ESP_LOGW("screen", "no reading this wake; keeping the last rendered values");
+            return;
+          }
+          // "Last updated" wall time. With a reading this wake: reading time, back-computed
+          // from the transport wall clock (SNTP on WiFi builds; invalid on BLE-only builds).
+          // Without a reading: wake/boot time. No valid clock: 0 -> placeholder.
+          id(last_updated_ts) = 0;
+          if (id(wall_clock_valid)) {
+            uint32_t now_ep = id(wall_clock_epoch);
+            uint32_t since = id(reading_done)
+                                 ? ((millis() - id(last_reading_millis)) / 1000u)
+                                 : (millis() / 1000u);
+            id(last_updated_ts) = now_ep > since ? now_ep - since : now_ep;
+          }
+          uint32_t sig = 2166136261u;   // FNV-1a
+          auto mix = [&sig](uint32_t v) { sig = (sig ^ v) * 16777619u; };
+          auto q = [](float v, float bucket) -> uint32_t {
+            if (isnan(v)) return 0xFFFFFFFFu;
+            float s = v / bucket;
+            return (uint32_t) ((int32_t) (s >= 0 ? s + 0.5f : s - 0.5f) + 100000);
+          };
+          mix(q(id(co2_value).state, 25.0f));
+          mix(q(id(temperature_value).state, 0.5f));
+          mix(q(id(humidity_value).state, 2.0f));
+          mix(q(id(battery_percent).state, 2.0f));
+          mix(((uint32_t) id(epaper_display)->get_native_width() << 16) |
+              (uint32_t) id(epaper_display)->get_native_height());
+          if (id(epaper_display)->get_native_width() > 200) {
+            if (id(last_updated_ts) != 0) {
+              auto rt = ESPTime::from_epoch_local((time_t) id(last_updated_ts));
+              mix((uint32_t) rt.day_of_month << 24 | (uint32_t) rt.month << 16 |
+                  (uint32_t) rt.hour << 8 | (uint32_t) rt.minute);
+            } else {
+              mix(0xFFFFFFFFu);
+            }
+            mix(q(id(sleep_interval).state, 1.0f));
+          }
+          for (char c : id(room_label).state)
+            mix((uint8_t) c);
+          // A values-less glass (boot page, or a panel this firmware never committed) must be
+          // repainted with the full waveform: the partial waveform cannot flip a mostly-changed
+          // image, it only darkens it, and every later partial builds on that state.
+          const bool need_full = !id(epaper_display)->panel_has_values();
+          if (id(epaper_display)->needs_render(sig) || need_full) {
+            ESP_LOGD("screen", "render sig=%08x full=%d", (unsigned) sig, (int) need_full);
+            if (need_full)
+              id(epaper_display)->request_full_refresh();
+            id(epaper_display).update();
+            id(epaper_display)->commit_render(sig, id(reading_done));
+          } else {
+            ESP_LOGV("screen", "skip unchanged sig=%08x", (unsigned) sig);
+          }
+  - id: finish_wake
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(wake_finished);'
+          then:
+            - lambda: 'id(wake_finished) = true;'
+            - script.execute: transport_publish
+            - if:
+                condition:
+                  lambda: 'return !id(setup_mode);'
+                then:
+                  - if:
+                      condition:
+                        and:
+                          - lambda: 'return id(reading_done);'
+                          - lambda: 'return !isnan(id(battery_percent).state);'
+                      then:
+                        - if:            # cold boot: hold the boot page so the 1 s poll can show the
+                            condition:   # transport checkmarks while the gate is still closed
+                              display.is_displaying_page: page_boot
+                            then:
+                              - wait_until:
+                                  condition:
+                                    lambda: 'return id(transport_ready);'
+                                  timeout: 60s
+                        - display.page.show: page_normal
+                        - script.execute: render_normal_page
+                      else:
+                        - lambda: |-
+                            // Never switch to the main screen before what it shows exists: a
+                            // values-less render (SCD41 failed this wake) or an unpublished
+                            // battery level would sit on the glass for the whole sleep cycle.
+                            // Stay on the boot page (cold boot) / keep the last good image
+                            // (timer wake); the next wake retries.
+                            ESP_LOGW("wake", "main screen not ready (reading=%d battery=%s); keeping the current page",
+                                     (int) id(reading_done),
+                                     isnan(id(battery_percent).state) ? "unset" : "set");
+            - lambda: |-
+                float wake_s = millis() / 1000.0f;
+            - wait_until:
+                condition:
+                  lambda: 'return id(allow_sleep) || id(setup_mode);'
+                timeout: 70s
+            - if:
+                condition:
+                  lambda: 'return id(allow_sleep);'
+                then:
+                  - switch.turn_off: peripheral_power
+                  - deep_sleep.enter: deep_sleep_id
+                else:
+                  - lambda: |-
+                      ESP_LOGW("wake", "not sleeping: gate closed (transport_ready=%d)",
+                               id(transport_ready));
+
+text:
+  - platform: template
+    id: room_label
+    name: "Room label"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    mode: TEXT
+    max_length: 14
+    initial_value: "${floor_label}"
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 10
+    set_action:
+      then:
+        - lambda: 'id(room_label).publish_state(x);'
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    internal: true
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 90
+
+switch:
+  - platform: gpio
+    id: peripheral_power
+    name: "Peripheral Power"
+    pin: GPIO20
+    restore_mode: ALWAYS_ON   # HIGH at setup (HARDWARE 800) -> SCD41 + EPD rail up before display init (PROCESSOR 400)
+    internal: true            # firmware-managed power gate, not an HA entity
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 80
+  - platform: template
+    id: panel_42
+    name: "4.2 inch panel"
+    internal: true
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 70
+    turn_on_action:
+      - lambda: 'id(epaper_display)->set_panel_requested(true);'
+    turn_off_action:
+      - lambda: 'id(epaper_display)->set_panel_requested(false);'
+
+display:
+  - platform: runtime_epaper
+    id: epaper_display
+    cs_pin: GPIO7
+    dc_pin: GPIO5
+    reset_pin: GPIO0
+    busy_pin: GPIO10
+    update_interval: never
+    pages:
+      - id: page_boot
+        lambda: |-
+          ESP_LOGI("screen", "boot link=%d data=%d (%s/%s)", id(link_ok), id(data_ok), id(link_label).c_str(), id(data_label).c_str());
+          if (it.get_native_width() > 200) {
+            int w = it.get_width();
+            int h = it.get_height();
+            it.printf(0, 0, id(font_label_lg), "%s", id(room_label).state.c_str());
+            {
+              float bp = id(battery_percent).state;
+              it.print(w, 2, id(font_status_lg), TextAlign::TOP_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
+              if (isnan(bp)) {
+                it.print(w - 30, 2, id(font_label_lg), TextAlign::TOP_RIGHT, "-- %");
+              } else {
+                it.printf(w - 30, 2, id(font_label_lg), TextAlign::TOP_RIGHT, "%.0f %%", bp);
+              }
+            }
+            it.line(0, 32, w, 32);
+            const float rh = (h - 44 - 40) / 4.0f;
+            int y0 = 40 + (int)(rh * 0.5f);
+            int yl = 40 + (int)(rh * 1.5f);
+            int yd = 40 + (int)(rh * 2.5f);
+            int ys = 40 + (int)(rh * 3.5f);
+            it.print(0, y0, id(font_label_lg), TextAlign::TOP_LEFT, "BOOTING...");
+            it.printf(0, yl, id(font_label_lg), TextAlign::TOP_LEFT, "%s...", id(link_label).c_str());
+            if (!id(ip_text).empty()) {
+              it.print(w - 34, yl, id(font_label_lg), TextAlign::TOP_RIGHT, id(ip_text).c_str());
+            }
+            if (id(link_ok)) {
+              it.print(w, yl, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
+            }
+            it.printf(0, yd, id(font_label_lg), TextAlign::TOP_LEFT, "%s...", id(data_label).c_str());
+            it.print(w - 34, yd, id(font_label_lg), TextAlign::TOP_RIGHT, id(data_detail).c_str());
+            if (id(data_ok)) {
+              it.print(w, yd, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
+            }
+            it.print(0, ys, id(font_label_lg), TextAlign::TOP_LEFT, "SENSOR...");
+            if (!isnan(id(co2_value).state) && !isnan(id(temperature_value).state) &&
+                !isnan(id(humidity_value).state)) {
+              it.printf(w - 34, ys, id(font_label_lg), TextAlign::TOP_RIGHT, "%.0fppm %.1fC %.0f%%",
+                        id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
+              it.print(w, ys, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
+            }
+          } else {
+            it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
+            {
+              float bp = id(battery_percent).state;
+              it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
+              if (isnan(bp)) {
+                it.print(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "-- %");
+              } else {
+                it.printf(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "%.0f %%", bp);
+              }
+            }
+            it.line(0, 20, 200, 20);
+            it.print(0, 30, id(font_label), "BOOTING...");
+            it.printf(0, 70, id(font_label), "%s...", id(link_label).c_str());
+            if (id(link_ok)) {
+              it.print(200, 70, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca");
+            }
+            it.printf(0, 100, id(font_label), "%s...", id(data_label).c_str());
+            if (id(data_ok)) { it.print(200, 100, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca"); }
+            if (!isnan(id(co2_value).state) && !isnan(id(temperature_value).state) &&
+                !isnan(id(humidity_value).state)) {
+              it.printf(0, 130, id(font_label), "%.0f %.1f %.0f",
+                        id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
+              it.print(200, 130, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca");
+            } else {
+              it.print(0, 130, id(font_label), "SENSOR...");
+            }
+            if (!id(ip_text).empty()) {
+              it.print(0, 176, id(font_label), id(ip_text).c_str());
+            }
+          }
+      - id: page_normal
+        lambda: |-
+          ESP_LOGI("screen", "screen co2=%.0f ppm temp=%.2f C hum=%.2f %%", id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
+          if (it.get_native_width() > 200) {
+            int w = it.get_width();
+            int h = it.get_height();
+            it.printf(0, 0, id(font_label_lg), "%s", id(room_label).state.c_str());
+            {
+              float bp = id(battery_percent).state;
+              it.print(w, 2, id(font_status_lg), TextAlign::TOP_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
+              if (isnan(bp)) {
+                it.print(w - 30, 2, id(font_label_lg), TextAlign::TOP_RIGHT, "-- %");
+              } else {
+                it.printf(w - 30, 2, id(font_label_lg), TextAlign::TOP_RIGHT, "%.0f %%", bp);
+              }
+            }
+            it.line(0, 32, w, 32);
+            const int footer_h = 30;
+            const float rh = (h - 32 - footer_h) / 3.0f;
+            int c0 = 32 + (int)(rh * 0.5f);
+            int c1 = 32 + (int)(rh * 1.5f);
+            int c2 = 32 + (int)(rh * 2.5f);
+            int l1 = 32 + (int)rh;
+            int l2 = 32 + (int)(rh * 2.0f);
+            const int fy = h - footer_h;
+            it.print(0, c0, id(font_icons_lg), TextAlign::CENTER_LEFT, "\ue7b0");
+            if (isnan(id(co2_value).state)) {
+              it.print(w, c0, id(font_value_lg), TextAlign::CENTER_RIGHT, "--");
+            } else {
+              it.printf(w, c0, id(font_value_lg), TextAlign::CENTER_RIGHT, "%.0f", id(co2_value).state);
+            }
+            it.line(0, l1, w, l1);
+            it.print(0, c1, id(font_icons_lg), TextAlign::CENTER_LEFT, "\ue1ff");
+            if (isnan(id(temperature_value).state)) {
+              it.print(w, c1, id(font_value_lg), TextAlign::CENTER_RIGHT, "-- C");
+            } else {
+              it.printf(w, c1, id(font_value_lg), TextAlign::CENTER_RIGHT, "%.1f C", id(temperature_value).state);
+            }
+            it.line(0, l2, w, l2);
+            it.print(0, c2, id(font_icons_lg), TextAlign::CENTER_LEFT, "\ue798");
+            if (isnan(id(humidity_value).state)) {
+              it.print(w, c2, id(font_value_lg), TextAlign::CENTER_RIGHT, "-- %%");
+            } else {
+              it.printf(w, c2, id(font_value_lg), TextAlign::CENTER_RIGHT, "%.0f %%", id(humidity_value).state);
+            }
+            it.line(0, fy, w, fy);
+            const int fmid = fy + footer_h / 2;
+            #ifdef USE_TIME
+            it.print(0, fmid, id(font_icons_footer), TextAlign::CENTER_LEFT, "\ue8b5");
+            if (id(last_updated_ts) != 0) {
+              auto rt = ESPTime::from_epoch_local((time_t) id(last_updated_ts));
+              it.printf(36, fmid, id(font_label_lg), TextAlign::CENTER_LEFT,
+                        "%02d.%02d. %02d:%02d", rt.day_of_month, rt.month, rt.hour, rt.minute);
+            } else {
+              it.print(36, fmid, id(font_label_lg), TextAlign::CENTER_LEFT, "--.-- --:--");
+            }
+            #endif
+            if (!isnan(id(sleep_interval).state)) {
+              it.printf(w - 38, fmid, id(font_label_lg), TextAlign::CENTER_RIGHT, "%.0f min", id(sleep_interval).state);
+            } else {
+              it.print(w - 38, fmid, id(font_label_lg), TextAlign::CENTER_RIGHT, "-- min");
+            }
+            it.print(w, fmid, id(font_icons_footer), TextAlign::CENTER_RIGHT, "\ue425");
+          } else {
+            it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
+            {
+              float bp = id(battery_percent).state;
+              it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
+              if (isnan(bp)) {
+                it.print(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "-- %");
+              } else {
+                it.printf(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "%.0f %%", bp);
+              }
+            }
+            it.line(0, 20, 200, 20);
+            it.print(0, 50, id(font_icons), TextAlign::CENTER_LEFT, "\ue7b0");  // co2
+            if (isnan(id(co2_value).state)) {
+              it.print(200, 50, id(font_co2), TextAlign::CENTER_RIGHT, "--");
+            } else {
+              it.printf(200, 50, id(font_co2), TextAlign::CENTER_RIGHT, "%.0f", id(co2_value).state);
+            }
+            it.line(0, 80, 200, 80);
+            it.print(0, 110, id(font_icons), TextAlign::CENTER_LEFT, "\ue1ff");  // thermometer
+            if (isnan(id(temperature_value).state)) {
+              it.print(200, 110, id(font_temp), TextAlign::CENTER_RIGHT, "-- C");
+            } else {
+              it.printf(200, 110, id(font_temp), TextAlign::CENTER_RIGHT, "%.1f C", id(temperature_value).state);
+            }
+            it.line(0, 140, 200, 140);
+            it.print(0, 170, id(font_icons), TextAlign::CENTER_LEFT, "\ue798");  // water drop
+            if (isnan(id(humidity_value).state)) {
+              it.print(200, 170, id(font_humid), TextAlign::CENTER_RIGHT, "-- %%");
+            } else {
+              it.printf(200, 170, id(font_humid), TextAlign::CENTER_RIGHT, "%.0f %%", id(humidity_value).state);
+            }
+          }
+
+deep_sleep:
+  id: deep_sleep_id
+  sleep_duration: 1min
+  run_duration: 120s   # normal cap: measurement + render ≈ 35 s; gift setup overlay raises to 30 min while unprovisioned
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (id(setup_mode)) return;   // setup packages own allow_sleep
+          id(allow_sleep) = id(transport_ready);
+  - interval: 500ms
+    then:
+      - lambda: |-
+          if (id(epaper_display)->is_panel_change_pending())
+            id(epaper_display)->apply_panel_change();
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            display.is_displaying_page: page_boot
+          then:
+            - lambda: |-
+                // Main-loop poll: re-render the boot page when the transport status changes.
+                // (connect callbacks run off the main loop — unsafe to render from there.)
+                uint8_t now = (id(link_ok) ? 1 : 0) | (id(data_ok) ? 2 : 0);
+                if (now != id(boot_shown)) {
+                  id(boot_shown) = now;
+                  id(epaper_display).update();
+                }
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            and:
+              - lambda: 'return id(wake_finished) && id(reading_done) && !id(setup_mode);'
+              - lambda: 'return !isnan(id(battery_percent).state);'
+              - display.is_displaying_page: page_normal
+          then:
+            - script.execute: render_normal_page

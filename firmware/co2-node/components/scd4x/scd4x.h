@@ -38,6 +38,11 @@ class SCD4XComponent final : public PollingComponent, public sensirion_common::S
   void set_temperature_sensor(sensor::Sensor *temperature) { temperature_sensor_ = temperature; };
   void set_humidity_sensor(sensor::Sensor *humidity) { humidity_sensor_ = humidity; }
   void set_measurement_mode(MeasurementMode mode) { measurement_mode_ = mode; }
+  /// Vendored (pinned to esphome 2026.10.1 — re-apply on upgrades):
+  /// BLE battery builds light-sleep through the identify waits, so setup() must not
+  /// schedule its timeout-based identification; co2-node-base.yaml drives
+  /// stop/configure_() synchronously instead (its on_boot priority 100).
+  void set_skip_setup_identify(bool skip) { this->skip_setup_identify_ = skip; }
   bool perform_forced_calibration(uint16_t current_co2_concentration);
   bool factory_reset();
 
@@ -56,6 +61,7 @@ class SCD4XComponent final : public PollingComponent, public sensirion_common::S
   uint16_t altitude_compensation_{0};
   uint16_t ambient_pressure_{0};  // Per datasheet, valid values are 700 to 1200 hPa; 0 is a valid sentinel value
   bool initialized_{false};
+  bool skip_setup_identify_{false};  // vendored: see set_skip_setup_identify
   bool enable_asc_{false};
   ErrorCode error_code_;
   MeasurementMode measurement_mode_{PERIODIC};

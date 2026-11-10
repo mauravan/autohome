@@ -38,6 +38,7 @@ void RuntimeEPaper::commit_render(uint32_t signature, bool has_values) {
 void RuntimeEPaper::force_render() {
   render_state.magic = 0;
   render_state.values_magic = 0;   // the glass content is not trusted after a cold boot
+  render_state.panel_magic = 0;    // ...including for take_full_refresh_'s decision
 }
 
 void WaveformEPaperSSD1683::refresh_screen(bool /*partial*/) {
@@ -111,12 +112,11 @@ void RuntimeEPaper::update() {
   this->active_panel_->set_full_refresh(this->take_full_refresh_());
   this->do_update_();                   // clears white, runs the current page lambda
   this->active_->update();              // starts the epaper_spi state machine
-
   uint32_t start = millis();
   while (this->active_->is_updating()) {
     this->active_->loop();              // pump the non-blocking state machine
     App.feed_wdt();
-    delay(1);
+    delay(1);                           // BUSY poll; the CPU must stay awake for the whole frame
     if (millis() - start > 15000) {
       ESP_LOGW(TAG, "e-paper update did not finish within 15s");
       break;

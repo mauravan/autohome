@@ -1,0 +1,20 @@
+substitutions:
+  device_name: "mid-floor-co2"
+  friendly_name: "Mid Floor"
+  ble_name: "Mid Floor"
+  floor_label: "MID FLOOR"
+  ap_ssid: "co2-setup-mid"
+  ap_password_sub: "d1dx5h9q"
+  log_level: "NONE"
+  ota_password: !secret ota_password
+
+esphome:
+  name: "${device_name}"
+  friendly_name: "${friendly_name}"
+  comment: "Battery CO2 sensor - mid floor (BLE)"
+
+packages:
+  base: !include co2-node-base.yaml
+  ble: !include co2-node-ble.yaml
+  setup: !include co2-node-ble-setup.yaml
+  webui: !include co2-node-webui.yaml
