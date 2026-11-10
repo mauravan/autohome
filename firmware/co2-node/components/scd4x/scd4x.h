@@ -41,7 +41,10 @@ class SCD4XComponent final : public PollingComponent, public sensirion_common::S
   bool perform_forced_calibration(uint16_t current_co2_concentration);
   bool factory_reset();
 
- protected:
+  static constexpr uint8_t IDENTIFY_ATTEMPTS = 4;
+  void identify_(uint8_t attempts_left);
+  void identify_retry_(uint8_t attempts_left);
+  bool configure_();
   bool update_ambient_pressure_compensation_(uint16_t pressure_in_hpa);
   bool start_measurement_();
 

@@ -14,22 +14,31 @@ struct RenderState {
   uint32_t magic;              // signature gate below is valid
   uint32_t signature;
   uint32_t panel_magic;        // the panel is showing an image this firmware wrote
+  uint32_t values_magic;       // that image was drawn from real sensor readings
   uint16_t partial_refreshes;  // Mode 2 refreshes since the last Mode 1 cleanup
 };
 RTC_NOINIT_ATTR RenderState render_state;
-constexpr uint32_t RENDER_MAGIC = 0x434F3245u;  // arbitrary non-zero marker
+constexpr uint32_t RENDER_MAGIC = 0x434F3246u;  // bumped: RenderState layout changed, stale RTC state must not be trusted
 }  // namespace
 
 bool RuntimeEPaper::needs_render(uint32_t signature) const {
   return render_state.magic != RENDER_MAGIC || render_state.signature != signature;
 }
 
-void RuntimeEPaper::commit_render(uint32_t signature) {
-  render_state.magic = RENDER_MAGIC;
-  render_state.signature = signature;
+bool RuntimeEPaper::panel_has_values() const {
+  return render_state.panel_magic == RENDER_MAGIC && render_state.values_magic == RENDER_MAGIC;
 }
 
-void RuntimeEPaper::force_render() { render_state.magic = 0; }
+void RuntimeEPaper::commit_render(uint32_t signature, bool has_values) {
+  render_state.magic = RENDER_MAGIC;
+  render_state.signature = signature;
+  render_state.values_magic = has_values ? RENDER_MAGIC : 0;
+}
+
+void RuntimeEPaper::force_render() {
+  render_state.magic = 0;
+  render_state.values_magic = 0;   // the glass content is not trusted after a cold boot
+}
 
 void WaveformEPaperSSD1683::refresh_screen(bool /*partial*/) {
   const bool full = this->full_;

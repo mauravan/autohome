@@ -60,7 +60,7 @@ esphome:
                   if (id(epaper_display)->needs_render(sig)) {
                     ESP_LOGD("screen", "setup render sig=%08x", (unsigned) sig);
                     id(epaper_display).update();
-                    id(epaper_display)->commit_render(sig);
+                    id(epaper_display)->commit_render(sig, false);
                   }
 
 wifi:
@@ -321,7 +321,7 @@ interval:
                 if (id(epaper_display)->needs_render(sig)) {
                   ESP_LOGD("screen", "setup render sig=%08x", (unsigned) sig);
                   id(epaper_display).update();
-                  id(epaper_display)->commit_render(sig);
+                  id(epaper_display)->commit_render(sig, false);
                 }
   - interval: 30s
     then:

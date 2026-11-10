@@ -536,6 +536,12 @@ script:
     mode: single
     then:
       - lambda: |-
+          // A wake without a reading must not overwrite a good image with placeholders: keep the
+          // last rendered values (their footer timestamp stays at that older reading).
+          if (!id(reading_done) && id(epaper_display)->panel_has_values()) {
+            ESP_LOGW("screen", "no reading this wake; keeping the last rendered values");
+            return;
+          }
           // "Last updated" wall time. With a reading this wake: reading time,
           // back-computed from SNTP once valid (stable while awake: now() and
           // millis() advance together). Without a reading: wake/boot time.
@@ -577,7 +583,7 @@ script:
           if (id(epaper_display)->needs_render(sig)) {
             ESP_LOGD("screen", "render sig=%08x", (unsigned) sig);
             id(epaper_display).update();
-            id(epaper_display)->commit_render(sig);
+            id(epaper_display)->commit_render(sig, id(reading_done));
           } else {
             ESP_LOGV("screen", "skip unchanged sig=%08x", (unsigned) sig);
           }

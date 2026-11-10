@@ -27,71 +27,87 @@ static const float SCD4X_TEMPERATURE_OFFSET_MULTIPLIER = (1 << 16) / 175.0f;
 
 void SCD4XComponent::setup() {
   // the sensor needs 1000 ms to enter the idle state
-  this->set_timeout(1000, [this]() {
-    this->status_clear_error();
-    if (!this->write_command(SCD4X_CMD_STOP_MEASUREMENTS)) {
-      ESP_LOGE(TAG, "Failed to stop measurements");
-      this->mark_failed();
-      return;
-    }
-    // According to the SCD4x datasheet the sensor will only respond to other commands after waiting 500 ms after
-    // issuing the stop_periodic_measurement command
-    this->set_timeout(500, [this]() {
-      uint16_t raw_serial_number[3];
-      if (!this->get_register(SCD4X_CMD_GET_SERIAL_NUMBER, raw_serial_number, 3, 1)) {
-        ESP_LOGE(TAG, "Failed to read serial number");
-        this->error_code_ = SERIAL_NUMBER_IDENTIFICATION_FAILED;
-        this->mark_failed();
-        return;
-      }
-      ESP_LOGD(TAG, "Serial number %02d.%02d.%02d", (uint16_t(raw_serial_number[0]) >> 8),
-               uint16_t(raw_serial_number[0] & 0xFF), (uint16_t(raw_serial_number[1]) >> 8));
+  this->set_timeout(1000, [this]() { this->identify_(IDENTIFY_ATTEMPTS); });
+}
 
-      if (!this->write_command(SCD4X_CMD_TEMPERATURE_OFFSET,
-                               (uint16_t) (temperature_offset_ * SCD4X_TEMPERATURE_OFFSET_MULTIPLIER))) {
-        ESP_LOGE(TAG, "Error setting temperature offset");
-        this->error_code_ = MEASUREMENT_INIT_FAILED;
-        this->mark_failed();
-        return;
-      }
-
-      // If pressure compensation available use it, else use altitude
-      if (this->ambient_pressure_) {
-        if (!this->update_ambient_pressure_compensation_(this->ambient_pressure_)) {
-          ESP_LOGE(TAG, "Error setting ambient pressure compensation");
-          this->error_code_ = MEASUREMENT_INIT_FAILED;
-          this->mark_failed();
-          return;
-        }
-      } else {
-        if (!this->write_command(SCD4X_CMD_ALTITUDE_COMPENSATION, this->altitude_compensation_)) {
-          ESP_LOGE(TAG, "Error setting altitude compensation");
-          this->error_code_ = MEASUREMENT_INIT_FAILED;
-          this->mark_failed();
-          return;
-        }
-      }
-
-      if (!this->write_command(SCD4X_CMD_AUTOMATIC_SELF_CALIBRATION, this->enable_asc_ ? 1 : 0)) {
-        ESP_LOGE(TAG, "Error setting automatic self calibration");
-        this->error_code_ = MEASUREMENT_INIT_FAILED;
-        this->mark_failed();
-        return;
-      }
-
-      this->initialized_ = true;
-      // Vendored change (pinned to esphome 2026.10.1 — re-apply on upgrades):
-      // single-shot modes do NOT auto-start a measurement here. With
-      // update_interval "never" the application drives measurements via update();
-      // an auto-started, never-read single shot occupies the sensor's 5000 ms
-      // command window (datasheet: commands must not be sent while a previous
-      // command is being processed) and collides with the first
-      // application-issued measure_single_shot.
-      if (this->measurement_mode_ != SINGLE_SHOT && this->measurement_mode_ != SINGLE_SHOT_RHT_ONLY) {
-        this->start_measurement_();
-      }
-    });
+void SCD4XComponent::identify_(uint8_t attempts_left) {
+  // One NAK must not cost the whole wake: mark_failed() makes every later component.update a silent
+  // no-op (UpdateComponentAction::play returns when the component is not ready), so a rail sag under
+  // the boot render would otherwise leave the panel full of placeholders until the next wake.
+  this->status_clear_error();
+  if (!this->write_command(SCD4X_CMD_STOP_MEASUREMENTS)) {
+    ESP_LOGE(TAG, "Failed to stop measurements");
+    this->error_code_ = COMMUNICATION_FAILED;
+    this->identify_retry_(attempts_left);
+    return;
+  }
+  // datasheet: the sensor accepts other commands 500 ms after stop_periodic_measurement
+  this->set_timeout(500, [this, attempts_left]() {
+    if (!this->configure_())
+      this->identify_retry_(attempts_left);
   });
+}
+
+void SCD4XComponent::identify_retry_(uint8_t attempts_left) {
+  if (attempts_left <= 1) {
+    this->mark_failed();
+    return;
+  }
+  ESP_LOGW(TAG, "identification failed; retry in 1000 ms (%u attempts left)",
+           (unsigned) (attempts_left - 1));
+  this->set_timeout(1000, [this, attempts_left]() { this->identify_(attempts_left - 1); });
+}
+
+bool SCD4XComponent::configure_() {
+  uint16_t raw_serial_number[3];
+  if (!this->get_register(SCD4X_CMD_GET_SERIAL_NUMBER, raw_serial_number, 3, 1)) {
+    ESP_LOGE(TAG, "Failed to read serial number");
+    this->error_code_ = SERIAL_NUMBER_IDENTIFICATION_FAILED;
+    return false;
+  }
+  ESP_LOGD(TAG, "Serial number %02d.%02d.%02d", (uint16_t(raw_serial_number[0]) >> 8),
+           uint16_t(raw_serial_number[0] & 0xFF), (uint16_t(raw_serial_number[1]) >> 8));
+
+  if (!this->write_command(SCD4X_CMD_TEMPERATURE_OFFSET,
+                           (uint16_t) (temperature_offset_ * SCD4X_TEMPERATURE_OFFSET_MULTIPLIER))) {
+    ESP_LOGE(TAG, "Error setting temperature offset");
+    this->error_code_ = MEASUREMENT_INIT_FAILED;
+    return false;
+  }
+
+  // If pressure compensation available use it, else use altitude
+  if (this->ambient_pressure_) {
+    if (!this->update_ambient_pressure_compensation_(this->ambient_pressure_)) {
+      ESP_LOGE(TAG, "Error setting ambient pressure compensation");
+      this->error_code_ = MEASUREMENT_INIT_FAILED;
+      return false;
+    }
+  } else {
+    if (!this->write_command(SCD4X_CMD_ALTITUDE_COMPENSATION, this->altitude_compensation_)) {
+      ESP_LOGE(TAG, "Error setting altitude compensation");
+      this->error_code_ = MEASUREMENT_INIT_FAILED;
+      return false;
+    }
+  }
+
+  if (!this->write_command(SCD4X_CMD_AUTOMATIC_SELF_CALIBRATION, this->enable_asc_ ? 1 : 0)) {
+    ESP_LOGE(TAG, "Error setting automatic self calibration");
+    this->error_code_ = MEASUREMENT_INIT_FAILED;
+    return false;
+  }
+
+  this->initialized_ = true;
+  // Vendored change (pinned to esphome 2026.10.1 — re-apply on upgrades):
+  // single-shot modes do NOT auto-start a measurement here. With
+  // update_interval "never" the application drives measurements via update();
+  // an auto-started, never-read single shot occupies the sensor's 5000 ms
+  // command window (datasheet: commands must not be sent while a previous
+  // command is being processed) and collides with the first
+  // application-issued measure_single_shot.
+  if (this->measurement_mode_ != SINGLE_SHOT && this->measurement_mode_ != SINGLE_SHOT_RHT_ONLY) {
+    this->start_measurement_();
+  }
+  return true;
 }
 
 void SCD4XComponent::dump_config() {
@@ -163,6 +179,7 @@ void SCD4XComponent::dump_config() {
 
 void SCD4XComponent::update() {
   if (!this->initialized_) {
+    ESP_LOGW(TAG, "Update requested before identification finished; skipped");
     return;
   }
 
@@ -175,7 +192,8 @@ void SCD4XComponent::update() {
 
   uint32_t wait_time = 0;
   if (this->measurement_mode_ == SINGLE_SHOT || this->measurement_mode_ == SINGLE_SHOT_RHT_ONLY) {
-    this->start_measurement_();
+    if (!this->start_measurement_())
+      ESP_LOGW(TAG, "Single shot did not start; the read below will report data-not-ready");
     wait_time =
         this->measurement_mode_ == SINGLE_SHOT ? 5500 : 50;  // Vendored change: datasheet max command duration is 5000 ms; read at +5500 ms so data-ready is guaranteed set (rht mode 50 ms)
   }

@@ -40,7 +40,8 @@ class RuntimeEPaper : public display::Display,
   }
   void apply_panel_change();
   bool needs_render(uint32_t signature) const;
-  void commit_render(uint32_t signature);
+  void commit_render(uint32_t signature, bool has_values);
+  bool panel_has_values() const;
   void set_partial_refreshes_before_full(uint16_t n) { this->partial_refresh_limit_ = n; }
   void force_render();
   void set_rotation(display::DisplayRotation rotation) override;
