@@ -607,6 +607,7 @@ script:
                             condition:
                               lambda: 'return id(allow_sleep);'
                             timeout: 60s
+                        - lambda: 'id(epaper_display)->request_full_refresh();'   # one Mode 1 cleanup after the boot page
                   - display.page.show: page_normal
                   - script.execute: render_normal_page
             - lambda: |-

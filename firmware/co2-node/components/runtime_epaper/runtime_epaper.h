@@ -44,6 +44,7 @@ class RuntimeEPaper : public display::Display,
   bool panel_has_values() const;
   void set_partial_refreshes_before_full(uint16_t n) { this->partial_refresh_limit_ = n; }
   void force_render();
+  void request_full_refresh() { this->force_full_ = true; }
   void set_rotation(display::DisplayRotation rotation) override;
   void setup() override;
   void update() override;
