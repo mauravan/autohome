@@ -184,10 +184,20 @@ MQTT: leave broker empty for local-only; `homeassistant.local` works when Mosqui
 on the HA host, otherwise enter the broker IP; create broker credentials in HA. Entities
 arrive via discovery; topics use `co2-sensor-<mac>/…`.
 
-Settings semantics: CO2/humidity offsets are additive; temperature offset is the SCD41
-internal offset (also affects RH); altitude is pressure compensation;
-offset changes apply immediately (the SCD41 is re-read, ~20 s) and MQTT settings apply
-on 'Save MQTT settings' or restart; setup mode stays awake up to 30 min.
+Settings semantics:
+- CO2/humidity offsets are additive; temperature offset is the SCD41 internal offset
+  (also affects RH); altitude is pressure compensation.
+- Offset changes apply immediately (the SCD41 is re-read, ~20 s); MQTT settings apply
+  on 'Save MQTT settings' or restart.
+- **FRC flow**: power-cycle the unit (or press Reset to setup) to get the awake window,
+  place it in reference conditions (e.g. outside air), open the web UI, set
+  "ppm · FRC reference", press "Calibrate CO2 (FRC)". The baseline is persisted to the
+  SCD41's NVM — keep calibrations infrequent (months apart), NVM write cycles are consumed.
+- **Trend arrow**: CO₂ vs the previous wake, ±25 ppm deadband; no arrow right after a
+  calibration or first boot.
+- **Smileys**: CO₂ happy below 1000 ppm; humidity happy strictly between 30 % and 60 %;
+  temperature is not judged.
+- Setup mode stays awake up to 30 min.
 
 Battery note: press `Finish setup` to stop the 30-minute setup window.
 

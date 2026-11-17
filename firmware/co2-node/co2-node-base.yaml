@@ -189,6 +189,8 @@ font:
       - "\U0000e1ff"  # device_thermostat (thermometer)
       - "\U0000e798"  # water_drop
       - "\U0000e8b8"  # settings (cog)
+      - "\U0000e813"  # sentiment_satisfied — happy
+      - "\U0000e811"  # sentiment_dissatisfied — sad
   - file: "fonts/MaterialIcons-Regular.ttf"
     id: font_status
     size: 16
@@ -197,6 +199,11 @@ font:
       - "\U0000e1a4"  # battery_full
       - "\U0000e19c"  # battery_alert
       - "\U0000ebdd"  # battery_3_bar — half
+      - "\U0000e813"  # sentiment_satisfied — happy
+      - "\U0000e811"  # sentiment_dissatisfied — sad
+      - "\U0000e8e5"  # trending_up
+      - "\U0000e8e3"  # trending_down
+      - "\U0000e8e4"  # trending_flat
   - file: "fonts/Roboto-Regular.ttf"
     id: font_label_lg
     size: 24
@@ -221,6 +228,8 @@ font:
       - "\U0000e7b0"  # co2
       - "\U0000e1ff"  # device_thermostat
       - "\U0000e798"  # water_drop
+      - "\U0000e813"  # sentiment_satisfied — happy
+      - "\U0000e811"  # sentiment_dissatisfied — sad
   - file: "fonts/MaterialIcons-Regular.ttf"
     id: font_status_lg
     size: 24
@@ -229,6 +238,11 @@ font:
       - "\U0000e1a4"  # battery_full
       - "\U0000e19c"  # battery_alert
       - "\U0000ebdd"  # battery_3_bar
+      - "\U0000e813"  # sentiment_satisfied — happy
+      - "\U0000e811"  # sentiment_dissatisfied — sad
+      - "\U0000e8e5"  # trending_up
+      - "\U0000e8e3"  # trending_down
+      - "\U0000e8e4"  # trending_flat
 
 globals:
   - id: allow_sleep
@@ -279,6 +293,10 @@ globals:
     type: uint32_t
     restore_value: false
     initial_value: '0'
+  - id: frc_busy
+    type: bool
+    restore_value: false
+    initial_value: 'false'
 
 sensor:
   - platform: scd4x
@@ -469,6 +487,25 @@ number:
         - lambda: 'id(altitude).publish_state(x);'
         - script.execute: apply_calibration
   - platform: template
+    id: frc_reference
+    name: "ppm · FRC reference"
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: 400
+    max_value: 2000
+    step: 10
+    initial_value: 420
+    unit_of_measurement: " "
+    mode: box
+    web_server:
+      sorting_group_id: grp_calibration
+      sorting_weight: 50
+    set_action:
+      then:
+        - lambda: 'id(frc_reference).publish_state(x);'
+  - platform: template
     id: sleep_interval
     name: "min · Sleep interval"
     internal: true
@@ -540,6 +577,35 @@ script:
           }
       - component.update: scd41_sensor
       - delay: 6s
+  - id: perform_frc
+    mode: single
+    then:
+      - if:
+          condition: { lambda: 'return id(scd41_sensor)->initialized_;' }
+          then:
+            - lambda: 'id(frc_busy) = true;'
+            - wait_until:
+                condition:
+                  lambda: 'return id(boot_readings_done);'
+                timeout: 60s
+            - delay: 1s
+            - lambda: 'id(scd41_sensor)->write_command((uint16_t) 0x36f6);'
+            - delay: 1s
+            - lambda: 'id(scd41_sensor)->write_command((uint16_t) 0x219d);'
+            - delay: 6s
+            - lambda: |-
+                float r = id(frc_reference).state;
+                uint16_t ref = (uint16_t) (isnan(r) ? 420.0f : (r < 400.0f ? 400.0f : (r > 2000.0f ? 2000.0f : r)));
+                id(scd41_sensor)->write_command((uint16_t) 0x362f, ref);
+            - delay: 400ms
+            - lambda: 'id(scd41_sensor)->write_command((uint16_t) 0x3615);'
+            - delay: 400ms
+            - lambda: |-
+                id(epaper_display)->clear_prev_co2();
+                id(frc_busy) = false;
+                ESP_LOGI("frc", "forced calibration to %u ppm applied and persisted", (unsigned) ((uint16_t) id(frc_reference).state));
+          else:
+            - lambda: 'ESP_LOGW("frc", "SCD41 not initialized; calibration skipped");'
   - id: render_normal_page
     mode: single
     then:
@@ -560,6 +626,18 @@ script:
                                  ? ((millis() - id(last_reading_millis)) / 1000u)
                                  : (millis() / 1000u);
             id(last_updated_ts) = now_ep > since ? now_ep - since : now_ep;
+          }
+          // Trend vs the wake whose values last hit the glass. Deadband ±25 ppm matches
+          // the CO2 signature bucket, so noise alone cannot flip the arrow.
+          uint16_t prev = 0;
+          const bool has_prev = id(epaper_display)->get_prev_co2(prev);
+          const bool co2_ok = !isnan(id(co2_value).state) && id(co2_value).state < 1000.0f;
+          const bool hum_ok = !isnan(id(humidity_value).state) && id(humidity_value).state > 30.0f &&
+                              id(humidity_value).state < 60.0f;
+          int trend = -2;   // -2 none (no prev / no reading), -1 down, 0 flat, +1 up
+          if (has_prev && !isnan(id(co2_value).state)) {
+            float d = id(co2_value).state - (float) prev;
+            trend = (d >= 25.0f) ? 1 : ((d <= -25.0f) ? -1 : 0);
           }
           uint32_t sig = 2166136261u;   // FNV-1a
           auto mix = [&sig](uint32_t v) { sig = (sig ^ v) * 16777619u; };
@@ -586,6 +664,9 @@ script:
           }
           for (char c : id(room_label).state)
             mix((uint8_t) c);
+          mix((uint32_t) (trend + 2));
+          mix(co2_ok ? 1u : 0u);
+          mix(hum_ok ? 1u : 0u);
           // A values-less glass (boot page, or a panel this firmware never committed) must be
           // repainted with the full waveform: the partial waveform cannot flip a mostly-changed
           // image, it only darkens it, and every later partial builds on that state.
@@ -599,6 +680,8 @@ script:
           } else {
             ESP_LOGV("screen", "skip unchanged sig=%08x", (unsigned) sig);
           }
+          if (id(reading_done) && !isnan(id(co2_value).state))
+            id(epaper_display)->set_prev_co2((uint16_t) id(co2_value).state);   // CO2 fits uint16 (0–40000 ppm)
   - id: finish_wake
     mode: single
     then:
@@ -693,6 +776,17 @@ button:
     web_server:
       sorting_group_id: grp_actions
       sorting_weight: 30
+  - platform: template
+    id: calibrate_co2_button
+    name: "Calibrate CO2 (FRC)"
+    internal: true
+    entity_category: config
+    web_server:
+      sorting_group_id: grp_actions
+      sorting_weight: 40
+    on_press:
+      then:
+        - script.execute: perform_frc
 
 switch:
   - platform: gpio
@@ -780,6 +874,17 @@ display:
       - id: page_normal
         lambda: |-
           ESP_LOGI("screen", "screen co2=%.0f ppm temp=%.2f C hum=%.2f %%", id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
+          uint16_t prev_ppm = 0;
+          const bool has_prev = id(epaper_display)->get_prev_co2(prev_ppm);
+          const bool co2_ok = !isnan(id(co2_value).state) && id(co2_value).state < 1000.0f;
+          const bool hum_ok = !isnan(id(humidity_value).state) && id(humidity_value).state > 30.0f &&
+                              id(humidity_value).state < 60.0f;
+          int trend = -2;
+          if (has_prev && !isnan(id(co2_value).state)) {
+            float d = id(co2_value).state - (float) prev_ppm;
+            trend = (d >= 25.0f) ? 1 : ((d <= -25.0f) ? -1 : 0);
+          }
+          const char *trend_glyph = (trend == 1) ? "\ue8e5" : (trend == -1) ? "\ue8e3" : (trend == 0) ? "\ue8e4" : nullptr;
           if (it.get_native_width() > 200) {
             int w = it.get_width();
             int h = it.get_height();
@@ -803,6 +908,10 @@ display:
             int l2 = 32 + (int)(rh * 2.0f);
             const int fy = h - footer_h;
             it.print(0, c0, id(font_icons_lg), TextAlign::CENTER_LEFT, "\ue7b0");
+            if (!isnan(id(co2_value).state))
+              it.print(44, c0, id(font_icons_lg), TextAlign::CENTER_LEFT, co2_ok ? "\ue813" : "\ue811");
+            if (trend_glyph != nullptr)
+              it.print(92, c0, id(font_status_lg), TextAlign::CENTER_LEFT, trend_glyph);
             if (isnan(id(co2_value).state)) {
               it.print(w, c0, id(font_value_lg), TextAlign::CENTER_RIGHT, "--");
             } else {
@@ -817,6 +926,8 @@ display:
             }
             it.line(0, l2, w, l2);
             it.print(0, c2, id(font_icons_lg), TextAlign::CENTER_LEFT, "\ue798");
+            if (!isnan(id(humidity_value).state))
+              it.print(44, c2, id(font_icons_lg), TextAlign::CENTER_LEFT, hum_ok ? "\ue813" : "\ue811");
             if (isnan(id(humidity_value).state)) {
               it.print(w, c2, id(font_value_lg), TextAlign::CENTER_RIGHT, "-- %%");
             } else {
@@ -853,6 +964,10 @@ display:
             }
             it.line(0, 20, 200, 20);
             it.print(0, 50, id(font_icons), TextAlign::CENTER_LEFT, "\ue7b0");  // co2
+            if (!isnan(id(co2_value).state))
+              it.print(34, 50, id(font_icons), TextAlign::CENTER_LEFT, co2_ok ? "\ue813" : "\ue811");
+            if (trend_glyph != nullptr)
+              it.print(68, 50, id(font_status), TextAlign::CENTER_LEFT, trend_glyph);
             if (isnan(id(co2_value).state)) {
               it.print(200, 50, id(font_co2), TextAlign::CENTER_RIGHT, "--");
             } else {
@@ -867,6 +982,8 @@ display:
             }
             it.line(0, 140, 200, 140);
             it.print(0, 170, id(font_icons), TextAlign::CENTER_LEFT, "\ue798");  // water drop
+            if (!isnan(id(humidity_value).state))
+              it.print(34, 170, id(font_icons), TextAlign::CENTER_LEFT, hum_ok ? "\ue813" : "\ue811");
             if (isnan(id(humidity_value).state)) {
               it.print(200, 170, id(font_humid), TextAlign::CENTER_RIGHT, "-- %%");
             } else {
@@ -889,7 +1006,7 @@ interval:
             id(boot_ready_ms) = millis();   // all-components-ready anchor; 60 s bound = dead transport still counts
           const bool window_hold = id(cold_boot) &&
               (id(boot_ready_ms) == 0 || (millis() - id(boot_ready_ms)) < 60000UL);
-          id(allow_sleep) = id(transport_ready) && !window_hold;
+          id(allow_sleep) = id(transport_ready) && !window_hold && !id(frc_busy);
   - interval: 500ms
     then:
       - lambda: |-

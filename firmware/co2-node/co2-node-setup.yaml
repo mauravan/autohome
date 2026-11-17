@@ -115,6 +115,7 @@ button:
             id(temp_offset).make_call().set_value(1.0).perform();
             id(hum_offset).make_call().set_value(0).perform();
             id(altitude).make_call().set_value(500).perform();
+            id(frc_reference).make_call().set_value(420).perform();
             id(sleep_interval).make_call().set_value(15).perform();
             id(room_label).make_call().set_value("CO2").perform();
             id(provisioned) = false;

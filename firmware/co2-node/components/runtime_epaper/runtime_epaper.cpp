@@ -16,9 +16,11 @@ struct RenderState {
   uint32_t panel_magic;        // the panel is showing an image this firmware wrote
   uint32_t values_magic;       // that image was drawn from real sensor readings
   uint16_t partial_refreshes;  // Mode 2 refreshes since the last Mode 1 cleanup
+  uint16_t prev_co2;           // CO2 of the wake whose values are on the glass
+  uint8_t trend_valid;         // prev_co2 is trustworthy
 };
 RTC_NOINIT_ATTR RenderState render_state;
-constexpr uint32_t RENDER_MAGIC = 0x434F3246u;  // bumped: RenderState layout changed, stale RTC state must not be trusted
+constexpr uint32_t RENDER_MAGIC = 0x434F3247u;  // bumped: RenderState layout changed, stale RTC state must not be trusted
 }  // namespace
 
 bool RuntimeEPaper::needs_render(uint32_t signature) const {
@@ -39,6 +41,22 @@ void RuntimeEPaper::force_render() {
   render_state.magic = 0;
   render_state.values_magic = 0;   // the glass content is not trusted after a cold boot
   render_state.panel_magic = 0;    // ...including for take_full_refresh_'s decision
+}
+
+bool RuntimeEPaper::get_prev_co2(uint16_t &ppm) const {
+  if (render_state.magic != RENDER_MAGIC || render_state.trend_valid == 0)
+    return false;
+  ppm = render_state.prev_co2;
+  return true;
+}
+
+void RuntimeEPaper::set_prev_co2(uint16_t ppm) {
+  render_state.prev_co2 = ppm;
+  render_state.trend_valid = 1;
+}
+
+void RuntimeEPaper::clear_prev_co2() {
+  render_state.trend_valid = 0;
 }
 
 void WaveformEPaperSSD1683::refresh_screen(bool /*partial*/) {
