@@ -86,8 +86,7 @@ class RuntimeEPaper : public display::Display,
 
   bool take_full_refresh_();
 
-  epaper_spi::EPaperBase *active_{nullptr};
-  WaveformEPaperSSD1683 *active_panel_{nullptr};
+  WaveformEPaperSSD1683 *active_{nullptr};
   bool force_full_{false};
   uint16_t partial_refresh_limit_{DEFAULT_PARTIAL_REFRESHES_BEFORE_FULL};
   GPIOPin *dc_pin_{nullptr};

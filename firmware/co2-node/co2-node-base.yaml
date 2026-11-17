@@ -9,7 +9,6 @@ external_components:
     components: [runtime_epaper, scd4x]
 
 esphome:
-  includes: [sntp_poll.h]
   on_boot:
     - priority: 650
       then:
@@ -18,15 +17,9 @@ esphome:
             if (!isnan(t)) id(scd41_sensor)->set_temperature_offset(t);
             float a = id(altitude).state;
             if (!isnan(a)) id(scd41_sensor)->set_altitude_compensation((uint16_t) a);
-    - priority: 650
-      then:
-        - lambda: |-
             float m = id(sleep_interval).state;
             if (!isnan(m) && m >= 1.0f && m <= 120.0f)
               id(deep_sleep_id).set_sleep_duration((uint32_t) (m * 60000.0f));
-    - priority: 650
-      then:
-        - lambda: |-
             float n = id(full_refresh_interval).state;
             if (!isnan(n) && n >= 1.0f && n <= 200.0f)
               id(epaper_display)->set_partial_refreshes_before_full((uint16_t) n);
@@ -346,18 +339,6 @@ sensor:
               // SCD41 -> power_down (0x36e0); the next wake power-cycles the rail (on_boot priority 750).
               id(scd41_sensor)->write_command((uint16_t) 0x36e0);
           - script.execute: finish_wake
-  - platform: template
-    id: wake_duration
-    name: "${friendly_name} Wake Duration"
-    unit_of_measurement: "s"
-    accuracy_decimals: 1
-    device_class: duration
-    state_class: measurement
-    entity_category: diagnostic
-    update_interval: never
-    web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 30
   - platform: adc
     id: battery_voltage
     pin: GPIO3
@@ -666,8 +647,6 @@ script:
                             ESP_LOGW("wake", "main screen not ready (reading=%d battery=%s); keeping the current page",
                                      (int) id(reading_done),
                                      isnan(id(battery_percent).state) ? "unset" : "set");
-            - lambda: |-
-                float wake_s = millis() / 1000.0f;
             - wait_until:
                 condition:
                   lambda: 'return id(allow_sleep) || id(setup_mode);'

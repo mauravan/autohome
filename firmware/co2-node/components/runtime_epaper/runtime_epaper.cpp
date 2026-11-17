@@ -96,7 +96,6 @@ void RuntimeEPaper::setup() {
 
   this->panel_ = this->requested_panel_;
   this->active_ = this->panel_ == PANEL_42 ? &this->large_ : &this->small_;
-  this->active_panel_ = this->panel_ == PANEL_42 ? &this->large_ : &this->small_;
   this->active_->setup();               // buffer + pins + SPI, no panel init yet
   if (this->panel_ == PANEL_42) {
     this->setup_42_ = true;
@@ -106,10 +105,10 @@ void RuntimeEPaper::setup() {
 }
 
 void RuntimeEPaper::update() {
-  if (this->active_ == nullptr || this->active_panel_ == nullptr)
+  if (this->active_ == nullptr)
     return;
 
-  this->active_panel_->set_full_refresh(this->take_full_refresh_());
+  this->active_->set_full_refresh(this->take_full_refresh_());
   this->do_update_();                   // clears white, runs the current page lambda
   this->active_->update();              // starts the epaper_spi state machine
   uint32_t start = millis();
@@ -132,7 +131,6 @@ void RuntimeEPaper::apply_panel_change() {
 
   this->panel_ = this->requested_panel_;
   this->active_ = this->panel_ == PANEL_42 ? &this->large_ : &this->small_;
-  this->active_panel_ = this->panel_ == PANEL_42 ? &this->large_ : &this->small_;
   this->apply_rotations_();
 
   bool &done = this->panel_ == PANEL_42 ? this->setup_42_ : this->setup_154_;

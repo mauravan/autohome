@@ -5,15 +5,14 @@
 substitutions:
   discovery_uid_generator: "legacy"
 
+esphome:
+  includes: [sntp_poll.h]
+
 globals:
   - id: mqtt_optional
     type: bool
     restore_value: false
     initial_value: 'false'
-  - id: mqtt_broker_addr
-    type: std::string
-    restore_value: false
-    initial_value: '"${mqtt_broker_compile}"'
 
 wifi:
   on_connect:
@@ -60,9 +59,10 @@ interval:
                           id(sntp_time).now().is_valid();
           bool ready = millis() > 60000UL ||        // hard bound: all conditions
                        (wifi_ok && mqtt_ok && (clock_ok || millis() > 20000UL));
-          if (ready && !id(transport_ready))
+          if (ready && !id(transport_ready)) {
             ESP_LOGI("wake", "sleep gate open (wifi=%d mqtt=%d clock=%d) at %.1f s",
                      wifi_ok, mqtt_ok, clock_ok, millis() / 1000.0f);
+          }
           id(transport_ready) = ready;
   - interval: 1s
     then:

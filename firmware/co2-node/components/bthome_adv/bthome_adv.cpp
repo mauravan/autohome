@@ -4,7 +4,6 @@
 #ifdef USE_ESP32
 
 #include <esp_bt.h>
-#include <esp_bt_main.h>
 #include <cstring>
 
 #include "esphome/core/hal.h"
@@ -164,8 +163,9 @@ void BTHomeAdv::start_now_() {
 #ifndef CONFIG_BT_CONTROLLER_DISABLED
   {
     esp_err_t tx_err = esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, this->tx_power_);
-    if (tx_err != ESP_OK)
+    if (tx_err != ESP_OK) {
       ESP_LOGW(TAG, "esp_ble_tx_power_set failed: %s", esp_err_to_name(tx_err));
+    }
   }
 #endif
 
@@ -190,8 +190,9 @@ void BTHomeAdv::start_now_() {
 void BTHomeAdv::stop_() {
   if (this->advertising_) {
     esp_err_t err = esp_ble_gap_stop_advertising();
-    if (err != ESP_OK)
+    if (err != ESP_OK) {
       ESP_LOGW(TAG, "esp_ble_gap_stop_advertising failed: %s", esp_err_to_name(err));
+    }
   }
   if (this->parent_ != nullptr)
     this->parent_->advertising_stop();

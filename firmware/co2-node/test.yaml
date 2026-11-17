@@ -6,7 +6,6 @@ substitutions:
   discovery_uid_generator: "mac"
   log_level: "DEBUG"
   ap_ssid: "co2-setup"
-  sleep_test: "5"
 packages:
   core: !include co2-node-core.yaml
   home: !include co2-node-home.yaml

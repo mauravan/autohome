@@ -38,7 +38,6 @@ class BTHomeAdv : public Component {
   void stop();
   /// True once the current burst finished (or was skipped: no reading this wake).
   bool is_done() const { return this->done_; }
-  bool is_advertising() const { return this->advertising_; }
 
   void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
 

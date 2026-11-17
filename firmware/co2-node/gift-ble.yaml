@@ -4,9 +4,6 @@ substitutions:
   ble_name: "CO2 Sensor"
   floor_label: "CO2 SENSOR"
   ap_ssid: "co2-setup"
-  ap_password_sub: "d1dx5h9q"
-  log_level: "NONE"
-  ota_password: !secret ota_password
 
 esphome:
   name: "${device_name}"

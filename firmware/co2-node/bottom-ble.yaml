@@ -4,9 +4,6 @@ substitutions:
   ble_name: "Bottom Flr"
   floor_label: "BOTTOM FLOOR"
   ap_ssid: "co2-setup-bottom"
-  ap_password_sub: "d1dx5h9q"
-  log_level: "NONE"
-  ota_password: !secret ota_password
 
 esphome:
   name: "${device_name}"

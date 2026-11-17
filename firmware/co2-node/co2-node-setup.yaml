@@ -12,7 +12,7 @@ substitutions:
 wifi:
   id: wifi_component
   fast_connect: true     # reconnect to last-known AP without a full scan
-  power_save_mode: none  # LIGHT broke the first 4-way handshake
+  power_save_mode: LIGHT   # modem dozes between beacons while awake (~10 s); if the 4-way handshake fails on this AP again, revert to none
   output_power: 8.5dB
   reboot_timeout: 0s     # unprovisioned/dead AP must not reboot-loop
   ap:                    # fallback: starts when STA has no saved creds or fails (ap_timeout)

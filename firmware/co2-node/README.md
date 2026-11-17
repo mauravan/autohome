@@ -1,14 +1,11 @@
 # Battery CO₂ Sensor Node (ESP32 + SCD41 + WeAct e-paper)
 
 Battery-powered per-floor CO₂ / temperature / humidity node. Wakes every 15 minutes
-(product default; home floors currently run 5 min), takes 3× SCD41 single-shot
-measurements (~6 s apart, averaged via `sliding_window_moving_average` with
-`window_size: 3` / `send_every: 3` / `send_first_at: 3`, so only the 3-sample
-mean is published), fully refreshes a WeAct 1.54" (200×200) or WeAct 4.2"
-(400×300) B/W e-paper, selected at runtime, publishes to the Mosquitto broker via ESPHome MQTT
-discovery, then deep-sleeps. Battery is sampled 3× at boot and averaged via
-`sliding_window_moving_average` (window 3), matching the SCD41 channels; the averaged
-level is republished after MQTT connects.
+(product default; home floors currently run 5 min), takes 1× SCD41 single-shot
+measurement (retried up to 3× on failure), fully refreshes a WeAct 1.54" (200×200)
+or WeAct 4.2" (400×300) B/W e-paper, selected at runtime, publishes to the Mosquitto
+broker via ESPHome MQTT discovery, then deep-sleeps. Battery is sampled 3× at boot and
+averaged via `sliding_window_moving_average` (window 3), matching the SCD41 channels.
 
 Three variants share one package: `top.yaml`, `mid.yaml`, `bottom.yaml` differ only in
 `device_name` / `friendly_name` / `floor_label`. Sensor `name`s live in
@@ -32,7 +29,7 @@ ids the dashboard already references (`sensor.top_floor_co2`, `_temperature`,
 | `co2-node-wifi.yaml` | WiFi/MQTT/SNTP transport (the WiFi component itself lives in `co2-node-setup.yaml`) |
 | `co2-node-ble.yaml` | BLE/BTHome transport; WiFi stays off except during setup/cold-boot config window |
 | `co2-node-setup.yaml` | Shared QR/AP/captive-portal setup flow, finish/reset buttons, `provisioned` flag |
-| `co2-node-webui.yaml` | Web server + auth + sorting groups |
+| `co2-node-webui.yaml` | Web server + sorting groups |
 | `co2-node-secure.yaml` | Product-only: NVS encryption, signed OTA, downgrade protection |
 | `co2-node-home.yaml` | Home package: default MQTT broker + SNTP servers (station WiFi is provisioned, not compiled in) |
 | `gift.yaml` | Gift build: generic MAC-suffixed identity, unprovisioned defaults, no station creds |
@@ -100,8 +97,8 @@ API (`api:`) is configured — HA integration is MQTT; the node also serves a lo
 UI on port 80 (plus the captive portal for WiFi setup, which also exposes HTTP OTA).
 
 Serial monitor should show, in order: boot → setup QR/AP → (after joining the home
-WiFi through the captive portal) `WiFi connected` → 5× SCD41 single-shot measurements
-(~5 s each) → CO₂/temp/humidity mean logged → `MQTT connected`. On cold boots the
+WiFi through the captive portal) `WiFi connected` → 1× SCD41 single-shot (retried up
+to 3× on failure) → CO₂/temp/humidity logged → `MQTT connected`. On cold boots the
 screen holds the centered cog + IP for 60 s after everything is ready, then renders
 the readings page and `Entering deep sleep`. Timer wakes skip the config window and
 sleep as soon as the reading is advertised. Then silence for ~5 min before the wake
@@ -133,10 +130,10 @@ Same `co2-node-core.yaml` logic. When the C6 board is in hand, three changes:
    DC-bias-while-floating risk). ESP32-C6 deep-sleep is ~7 µA (chip); the board LDO
    quiescent current dominates — pick an LDO with µA-scale IQ.
 
-### Power optimizations already in `co2-node-core.yaml`
+### Power optimizations already in `co2-node-base.yaml` / `co2-node-setup.yaml`
 
 - `logger.level: NONE` — no log formatting/TX per wake (flip to `DEBUG` only while developing).
-- `wifi.power_save_mode: LIGHT` — modem sleeps during the ~30 s SCD41 measurement phase (the largest idle draw).
+- `wifi.power_save_mode: LIGHT` — modem dozes between beacons during the awake phase; an earlier AP failed the 4-way handshake with LIGHT, revert to `none` in `co2-node-setup.yaml` if association becomes flaky.
 - `wifi.output_power: 8.5dB` — cuts TX peak current; raise toward 20 dB if range is marginal.
 - `i2c.scan: false` — no boot-time bus probe.
 - Single gated e-paper refresh per wake (was two renders + a 1 s delay; `component.update`/`update()` blocks on BUSY, so one render is safe).
@@ -151,13 +148,13 @@ Estimates, not measured. Per 5-min wake after the optimizations above:
 
 | Phase | Time | Notes |
 |---|---|---|
-| Boot + WiFi associate + DHCP | ~2–3 s | overlaps the first measurement |
-| 5× SCD41 single-shot | ~30 s | radio idles in modem sleep; dominates active energy |
+| Boot + WiFi associate + DHCP | ~2–3 s | overlaps the first measurement attempt |
+| 1× SCD41 single-shot | ~6 s | radio idles in modem sleep |
 | MQTT connect + publish | ~1 s | short TX burst |
 | 1× e-paper refresh | ~1 s | single render, Mode 2 (measured 0.77 s vs 2.9 s for a Mode 1 cleanup) |
 | Deep sleep | ~4.5 min | board LDO quiescent current dominates |
 
-- The ~30 s measurement phase is ~85 % of active energy. Biggest levers, in order: raise `sleep_duration` (cadence), then cut active time (fewer samples / renders).
+- WiFi association + the awake window now dominate active energy; cadence (`sleep_duration`) remains the biggest lever.
 - Expect roughly 1–3 months on a 2500 mAh cell at 5-min cadence. `sleep_duration` 5→15 min ≈ 3× life, 5→30 min ≈ 6×.
 
 ### Battery build recommendations

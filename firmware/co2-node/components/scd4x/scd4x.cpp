@@ -6,8 +6,6 @@ namespace esphome::scd4x {
 
 static const char *const TAG = "scd4x";
 
-static const uint16_t SCD41_ID = 0x1408;
-static const uint16_t SCD40_ID = 0x440;
 static const uint16_t SCD4X_CMD_GET_SERIAL_NUMBER = 0x3682;
 static const uint16_t SCD4X_CMD_TEMPERATURE_OFFSET = 0x241d;
 static const uint16_t SCD4X_CMD_ALTITUDE_COMPENSATION = 0x2427;
@@ -22,7 +20,6 @@ static const uint16_t SCD4X_CMD_READ_MEASUREMENT = 0xec05;
 static const uint16_t SCD4X_CMD_PERFORM_FORCED_CALIBRATION = 0x362f;
 static const uint16_t SCD4X_CMD_STOP_MEASUREMENTS = 0x3f86;
 static const uint16_t SCD4X_CMD_FACTORY_RESET = 0x3632;
-static const uint16_t SCD4X_CMD_GET_FEATURESET = 0x202f;
 static const float SCD4X_TEMPERATURE_OFFSET_MULTIPLIER = (1 << 16) / 175.0f;
 
 void SCD4XComponent::setup() {
@@ -194,8 +191,9 @@ void SCD4XComponent::update() {
 
   uint32_t wait_time = 0;
   if (this->measurement_mode_ == SINGLE_SHOT || this->measurement_mode_ == SINGLE_SHOT_RHT_ONLY) {
-    if (!this->start_measurement_())
+    if (!this->start_measurement_()) {
       ESP_LOGW(TAG, "Single shot did not start; the read below will report data-not-ready");
+    }
     wait_time =
         this->measurement_mode_ == SINGLE_SHOT ? 5500 : 50;  // Vendored change: datasheet max command duration is 5000 ms; read at +5500 ms so data-ready is guaranteed set (rht mode 50 ms)
   }

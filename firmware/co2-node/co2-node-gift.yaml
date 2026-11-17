@@ -15,7 +15,6 @@ esphome:
             m->set_username(id(mqtt_username).state);
             m->set_password(id(mqtt_password).state);
             id(mqtt_optional) = id(mqtt_broker).state.empty();
-            id(mqtt_broker_addr) = id(mqtt_broker).state;
             if (!id(mqtt_optional)) {
               m->enable();
               id(mqtt_save_deadline) = millis() + 15000;   // -> "failed" if the broker never answers
@@ -131,7 +130,6 @@ button:
             m->set_username(id(mqtt_username).state);
             m->set_password(id(mqtt_password).state);
             id(mqtt_optional) = broker.empty();
-            id(mqtt_broker_addr) = broker;
             id(mqtt_was_connected) = false;
             if (id(mqtt_optional)) {
               id(mqtt_save_deadline) = 0;
