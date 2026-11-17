@@ -5,15 +5,14 @@ var CSS = [
   "a#logo esp-logo{display:none!important}",
   "a#logo{display:inline-block!important;width:36px!important;height:36px!important;",
   "  background:url(data:image/png;base64,__LOGO_B64__) no-repeat left center/contain!important}",
-  /* header layout: small logo/icons pinned, title + subtitle centered below */
-  "header{position:relative!important;display:flex!important;flex-direction:column!important;",
-  "  align-items:center!important;width:90%!important;margin:1em auto 0!important;",
-  "  padding-inline:0.5em!important;padding-top:2.5em!important;padding-bottom:0.5em!important}",
-  "a#logo{position:absolute!important;left:0.5em!important;top:0.5em!important}",
-  "#beat{position:absolute!important;right:2em!important;top:0.5em!important;font-size:1.6rem!important}",
-  "#scheme{position:absolute!important;right:0.5em!important;top:0.5em!important;font-size:1.6rem!important}",
-  "h1{text-align:center!important;width:100%!important;margin-block:.25em!important}",
-  "header div{text-align:center!important;width:100%!important}",
+  /* header layout: single row logo | title | beat, subtitle centered below */
+  "header{display:flex!important;flex-wrap:wrap!important;align-items:center!important;",
+  "  justify-content:space-between!important;width:100%!important;padding:0.5em!important;",
+  "  box-sizing:border-box!important}",
+  "a#logo{order:1!important;width:36px!important;height:36px!important;flex-shrink:0!important}",
+  "h1{order:2!important;text-align:center!important;flex:1!important;margin:0!important}",
+  "#beat{order:3!important;font-size:1.6rem!important;flex-shrink:0!important}",
+  "header div{order:4!important;flex-basis:100%!important;text-align:center!important;margin-top:0.25em!important}",
   /* all-button sorting groups render as full-width buttons */
   ".tab-container:not(:has(.entity-row:not(:has(> div:nth-child(3) > button.abutton)))){",
   "  border:none;display:flex;flex-direction:column;gap:8px;padding:8px;",

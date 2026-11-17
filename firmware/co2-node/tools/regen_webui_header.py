@@ -4,6 +4,7 @@
 Patches applied to the stock ESPHome v3 web app bundle:
 - Replace the header ESPHome logo with the project wordmark from fonts/logo_green.png.
 - Force the page/header title to "Configuration" for every build.
+- Remove the dark/light mode switch and force light scheme.
 - Style all-button sorting groups (e.g. the "Actions" group) as full-width buttons.
 
 Stock bundle source: webui/stock_v3.html.gz
@@ -21,7 +22,7 @@ STOCK_GZ = ROOT / "webui" / "stock_v3.html.gz"
 BOOT_JS = ROOT / "webui" / "boot.js"
 LOGO_PNG = ROOT / "fonts" / "logo_green.png"
 HEADER = ROOT / "components" / "web_server" / "server_index_v3.h"
-ARRAY_COMMENT = "// Patched (logo + title + all-button group styling). Regenerate with tools/regen_webui_header.py; do not hand-edit.\n"
+ARRAY_COMMENT = "// Patched (logo + title + light-mode + all-button group styling). Regenerate with tools/regen_webui_header.py; do not hand-edit.\n"
 
 
 def format_bytes(data: bytes) -> str:
@@ -54,6 +55,26 @@ def patch_html(html: bytes, logo_b64: str, boot_js: str) -> bytes:
     )
     if b'<h1>Configuration</h1>' not in patched:
         raise RuntimeError("renderTitle patch did not apply")
+
+    # Remove the dark/light mode switch and force light scheme.
+    patched = patched.replace(
+        b'<a href="#" id="scheme" @click="${()=>{this.scheme=this.scheme===`dark`?`light`:`dark`}}"><iconify-icon icon="mdi:theme-light-dark" class="top-icon"></iconify-icon></a>',
+        b'',
+    )
+    patched = patched.replace(
+        b'schemeDefault(){return this.darkQuery.matches?`dark`:`light`}',
+        b'schemeDefault(){return `light`}',
+    )
+    patched = patched.replace(
+        b'updated(e){super.updated(e),e.has(`scheme`)&&document.documentElement.style.setProperty(`color-scheme`,this.scheme),e.has(`ping`)&&this.ping&&this.beat.animate(this.frames,1e3)}',
+        b'updated(e){super.updated(e),e.has(`ping`)&&this.ping&&this.beat.animate(this.frames,1e3)}',
+    )
+    patched = patched.replace(
+        b',this.darkQuery=window.matchMedia(`(prefers-color-scheme: dark)`)',
+        b'',
+    )
+    if b'mdi:theme-light-dark' in patched or b'this.darkQuery=' in patched:
+        raise RuntimeError("scheme switch or darkQuery was not removed")
     return patched
 
 
