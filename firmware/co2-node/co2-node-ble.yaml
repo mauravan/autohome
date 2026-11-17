@@ -16,7 +16,7 @@ external_components:
   - source:
       type: local
       path: components
-    components: [runtime_epaper, scd4x, bthome_adv]
+    components: [runtime_epaper, scd4x, bthome_adv, captive_portal]
 
 esp32_ble:
   id: ble_hub

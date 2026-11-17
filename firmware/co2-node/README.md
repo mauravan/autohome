@@ -94,7 +94,7 @@ esphome run top.yaml --device /dev/ttyACM0
 
 `secrets.yaml` is git-ignored and never committed. Flash over USB serial. No native
 API (`api:`) is configured — HA integration is MQTT; the node also serves a local web
-UI on port 80 (plus the captive portal for WiFi setup, which also exposes HTTP OTA).
+UI on port 80 (plus the captive portal for WiFi setup (custom minimal page; HTTP OTA is not exposed there — use the web UI or serial flashing)).
 
 Serial monitor should show, in order: boot → setup QR/AP → (after joining the home
 WiFi through the captive portal) `WiFi connected` → 1× SCD41 single-shot (retried up

@@ -6,7 +6,7 @@ external_components:
   - source:
       type: local
       path: components
-    components: [runtime_epaper, scd4x]
+    components: [runtime_epaper, scd4x, captive_portal]
 
 esphome:
   on_boot:
