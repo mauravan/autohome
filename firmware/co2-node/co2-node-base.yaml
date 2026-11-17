@@ -323,19 +323,6 @@ sensor:
           - lambda: |-
               ESP_LOGI("publish", "readings co2=%.0f ppm temp=%.2f C hum=%.2f %%", id(co2_value).state, id(temperature_value).state, x);
           - lambda: |-
-              // Sample the cell now that a reading landed: the board has had seconds to
-              // settle (~10 s after rail-on on a cold boot) and no panel refresh is in
-              // flight — unlike a sample right after rail-on, which read the still-settling
-              // board and produced the false 0 %. One 3-sample window -> one averaged
-              // publish through the on_value guard; it feeds the boot-page redraw below,
-              // the normal-page render and the BTHome payload (finish_wake ->
-              // transport_publish). The old re-publish of the same state is subsumed.
-              for (int i = 0; i < 3; i++) {
-                if (id(battery_voltage)->is_ready())
-                  id(battery_voltage)->update();
-                delay(100);
-              }
-          - lambda: |-
               // SCD41 -> power_down (0x36e0); the next wake power-cycles the rail (on_boot priority 750).
               id(scd41_sensor)->write_command((uint16_t) 0x36e0);
           - script.execute: finish_wake
@@ -620,6 +607,24 @@ script:
             lambda: 'return !id(wake_finished);'
           then:
             - lambda: 'id(wake_finished) = true;'
+            - delay: 500ms
+            - lambda: |-
+                // Sample the cell at the wake's quietest moment: the SCD41 is already
+                // powered down (0x36e0 in the humidity on_value), no e-paper refresh is
+                // in flight (the render comes later), and the radio is idle — BLE builds
+                // enable the controller only inside transport_publish below, WiFi builds
+                // are past the reading-publish TX burst (500 ms settle) and doze between
+                // beacons. The old position sampled mid-load right after the reading and
+                // read the sagging cell, reporting a charged battery as 4-7 %. One
+                // 3-sample window -> one averaged publish through the on_value guard; it
+                // feeds the normal-page render below, MQTT (state publishes immediately
+                // on publish_state, broker already connected), and the BTHome payload
+                // (whose adv snapshot is taken inside transport_publish below).
+                for (int i = 0; i < 3; i++) {
+                  if (id(battery_voltage)->is_ready())
+                    id(battery_voltage)->update();
+                  delay(100);
+                }
             - script.execute: transport_publish
             - if:
                 condition:

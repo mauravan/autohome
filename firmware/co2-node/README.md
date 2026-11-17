@@ -4,8 +4,9 @@ Battery-powered per-floor CO₂ / temperature / humidity node. Wakes every 15 mi
 (product default; home floors currently run 5 min), takes 1× SCD41 single-shot
 measurement (retried up to 3× on failure), fully refreshes a WeAct 1.54" (200×200)
 or WeAct 4.2" (400×300) B/W e-paper, selected at runtime, publishes to the Mosquitto
-broker via ESPHome MQTT discovery, then deep-sleeps. Battery is sampled 3× at boot and
-averaged via `sliding_window_moving_average` (window 3), matching the SCD41 channels.
+broker via ESPHome MQTT discovery, then deep-sleeps. Battery is sampled 3× per wake at the
+quietest load point (radio idle, SCD41 powered down, before the e-paper render) and averaged
+via `sliding_window_moving_average` (window 3), matching the SCD41 channels.
 
 Three variants share one package: `top.yaml`, `mid.yaml`, `bottom.yaml` differ only in
 `device_name` / `friendly_name` / `floor_label`. Sensor `name`s live in
