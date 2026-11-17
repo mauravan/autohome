@@ -6,7 +6,7 @@ external_components:
   - source:
       type: local
       path: components
-    components: [runtime_epaper, scd4x, captive_portal]
+    components: [runtime_epaper, scd4x, web_server, captive_portal]
 
 esphome:
   on_boot:
@@ -691,8 +691,8 @@ button:
     name: "Restart"
     internal: true
     web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 90
+      sorting_group_id: grp_actions
+      sorting_weight: 30
 
 switch:
   - platform: gpio

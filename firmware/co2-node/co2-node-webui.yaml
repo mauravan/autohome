@@ -18,3 +18,6 @@ web_server:
     - id: grp_device
       name: "Device"
       sorting_weight: 40
+    - id: grp_actions
+      name: "Actions"
+      sorting_weight: 50

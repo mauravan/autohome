@@ -88,8 +88,8 @@ button:
     internal: true
     entity_category: config
     web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 60
+      sorting_group_id: grp_actions
+      sorting_weight: 10
     on_press:
       then:
         # No STA-connected guard: BLE units may legitimately be configured over the AP.
@@ -106,8 +106,8 @@ button:
     internal: true
     entity_category: config
     web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 70
+      sorting_group_id: grp_actions
+      sorting_weight: 20
     on_press:
       then:
         - lambda: |-
