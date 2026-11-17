@@ -1,13 +1,16 @@
+# Home package: default MQTT broker and SNTP servers. Station WiFi is no
+# longer compiled in; home builds provision via the QR/captive portal flow
+# in co2-node-setup.yaml like gift and BLE builds.
+
 substitutions:
   mqtt_broker_compile: "192.168.178.47"
   discovery_uid_generator: "legacy"
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
+
 mqtt:
   username: !secret mqtt_username
   password: !secret mqtt_password
   enable_on_boot: true
+
 time:
   - id: !extend sntp_time
     servers:

@@ -2,6 +2,7 @@ substitutions:
   device_name: "bottom-floor-co2"
   friendly_name: "Bottom Floor"
   floor_label: "BOTTOM FLOOR"
+  ap_ssid: "co2-setup-bottom"
 
 esphome:
   name: "${device_name}"

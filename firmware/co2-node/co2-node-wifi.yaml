@@ -1,5 +1,7 @@
 # WiFi + MQTT + SNTP transport. Included by co2-node-core.yaml so existing
-# builds keep their exact runtime behavior; the base file owns everything else.
+# builds keep their MQTT/SNTP runtime. The WiFi component itself lives in
+# co2-node-setup.yaml (included by every build).
+
 substitutions:
   discovery_uid_generator: "legacy"
 
@@ -13,20 +15,7 @@ globals:
     restore_value: false
     initial_value: '"${mqtt_broker_compile}"'
 
-esphome:
-  on_boot:
-    - priority: 90
-      then:
-        - lambda: |-
-            id(link_label) = "WIFI";
-            id(data_label) = "MQTT";
-
 wifi:
-  id: wifi_component
-  fast_connect: true   # reconnect to last-known AP without a full scan
-  power_save_mode: none    # LIGHT broke the first 4-way handshake (Authentication Failed, +6.3 s/wake)
-  output_power: 8.5dB      # cut TX peak current; raise toward 20dB only if range is marginal
-  reboot_timeout: 0s
   on_connect:
     then:
       - lambda: |-
@@ -74,16 +63,7 @@ interval:
           if (ready && !id(transport_ready))
             ESP_LOGI("wake", "sleep gate open (wifi=%d mqtt=%d clock=%d) at %.1f s",
                      wifi_ok, mqtt_ok, clock_ok, millis() / 1000.0f);
-          id(link_ok) = wifi_ok;
-          id(data_ok) = mqtt_ok;
           id(transport_ready) = ready;
-          id(data_detail) = id(mqtt_optional) ? "not configured" : id(mqtt_broker_addr);
-          if (wifi_ok) {
-            auto ips = id(wifi_component).wifi_sta_ip_addresses();
-            if (!ips.empty()) { char b[40]; ips[0].str_to(b); id(ip_text) = b; }
-          } else {
-            id(ip_text) = "";
-          }
   - interval: 1s
     then:
       - lambda: |-

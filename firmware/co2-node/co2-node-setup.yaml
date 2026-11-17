@@ -1,0 +1,137 @@
+# Shared setup/config package, included by EVERY build (WiFi builds via
+# co2-node-core.yaml, BLE builds directly). Owns the WiFi component, the setup
+# AP + captive portal, the QR code, the `provisioned` flag, the finish/reset
+# buttons and the cold-boot config window globals.
+
+substitutions:
+  ap_ssid: "co2-setup"
+  ap_password_sub: "d1dx5h9q"          # existing gift/BLE AP password
+  # WiFi-join QR payload. Any ; : , or \ inside the SSID/password must be backslash-escaped.
+  ap_qr: "WIFI:T:WPA;S:${ap_ssid};P:${ap_password_sub};;"
+
+wifi:
+  id: wifi_component
+  fast_connect: true     # reconnect to last-known AP without a full scan
+  power_save_mode: none  # LIGHT broke the first 4-way handshake
+  output_power: 8.5dB
+  reboot_timeout: 0s     # unprovisioned/dead AP must not reboot-loop
+  ap:                    # fallback: starts when STA has no saved creds or fails (ap_timeout)
+    ssid: "${ap_ssid}"
+    password: "${ap_password_sub}"
+    ap_timeout: 30s
+
+captive_portal:
+
+qr_code:
+  - id: ap_qr_code
+    value: "${ap_qr}"
+    ecc: LOW
+
+globals:
+  - id: provisioned
+    type: bool
+    restore_value: true
+    initial_value: 'false'
+  - id: setup_deadline
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: cold_boot
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: boot_ready_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: skip_boot_window
+    type: bool
+    restore_value: true
+    initial_value: 'false'
+
+esphome:
+  on_boot:
+    - priority: 795   # after globals restore (800); before ble.yaml's 790 allow_light_sleep
+      then:
+        - lambda: |-
+            id(cold_boot) = esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED;
+            if (!id(provisioned))
+              id(setup_mode) = true;
+    - priority: 240
+      then:
+        - lambda: |-
+            if (!id(provisioned)) {
+              id(setup_deadline) = millis() + 1800000UL;   // 30 min setup window
+              id(deep_sleep_id).set_run_duration(1800000);
+            } else if (id(cold_boot)) {
+              // cold boot: measurement (~35 s) + transport bound (60 s) + 60 s window + margin
+              id(deep_sleep_id).set_run_duration(240000);
+            }
+            if (id(skip_boot_window)) {
+              // Freshly provisioned restart: the user just pressed Finish setup, skip the
+              // 60 s post-ready hold on this first boot so it goes to sleep promptly.
+              id(boot_ready_ms) = millis() - 60000UL;
+              id(skip_boot_window) = false;
+            }
+    - priority: 110   # WiFi up for the setup window and for the cold-boot config window
+      then:
+        - if:
+            condition:
+              lambda: 'return id(cold_boot) || id(setup_mode);'
+            then:
+              - wifi.enable:
+
+button:
+  - platform: template
+    id: finish_setup
+    name: "Finish setup (restart)"
+    internal: true
+    entity_category: config
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 60
+    on_press:
+      then:
+        # No STA-connected guard: BLE units may legitimately be configured over the AP.
+        # A WiFi unit finished over the AP simply shows the QR again on its next cold
+        # boot (no saved STA) — self-correcting; recover via the web UI or reset_setup.
+        - lambda: |-
+            id(provisioned) = true;
+            id(skip_boot_window) = true;
+        - delay: 1500ms
+        - button.press: restart_button
+  - platform: template
+    id: reset_setup
+    name: "Reset to setup"
+    internal: true
+    entity_category: config
+    web_server:
+      sorting_group_id: grp_device
+      sorting_weight: 70
+    on_press:
+      then:
+        - lambda: |-
+            id(co2_offset).make_call().set_value(0).perform();
+            id(temp_offset).make_call().set_value(1.0).perform();
+            id(hum_offset).make_call().set_value(0).perform();
+            id(altitude).make_call().set_value(500).perform();
+            id(sleep_interval).make_call().set_value(15).perform();
+            id(room_label).make_call().set_value("CO2").perform();
+            id(provisioned) = false;
+            id(skip_boot_window) = false;
+        - script.execute: reset_extra
+        - delay: 1500ms
+        - button.press: restart_button
+
+script:
+  - id: reset_extra      # per-package factory-reset additions; transport packages extend it
+    mode: single
+    then: []
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (id(setup_mode)) {
+            id(allow_sleep) = id(setup_deadline) != 0 && millis() > id(setup_deadline);
+          }

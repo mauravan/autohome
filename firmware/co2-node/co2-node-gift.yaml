@@ -1,24 +1,10 @@
-substitutions:
-  ap_password_sub: "d1dx5h9q"
-  ap_ssid: "co2-setup"
+# Gift/product web-MQTT configuration. The shared setup package
+# (co2-node-setup.yaml) owns the WiFi AP, captive portal, QR code, and the
+# finish/reset setup buttons; this file only holds the MQTT broker inputs and
+# the factory-reset hook that clears them.
 
 esphome:
   on_boot:
-    - priority: 400
-      then:
-        - lambda: |-
-            id(ap_password) = "${ap_password_sub}";
-            auto ap = id(wifi_component).get_ap();
-            ap.set_password("${ap_password_sub}");
-            id(wifi_component).set_ap(ap);
-            ESP_LOGI("setup", "AP password: %s", "${ap_password_sub}");
-    - priority: 240
-      then:
-        - lambda: |-
-            if (!id(provisioned)) {
-              id(setup_deadline) = millis() + 1800000UL;   // 30 min setup window
-              id(deep_sleep_id).set_run_duration(1800000);
-            }
     - priority: 190
       then:
         - lambda: |-
@@ -35,55 +21,8 @@ esphome:
               id(mqtt_save_deadline) = millis() + 15000;   // -> "failed" if the broker never answers
             }
             id(mqtt_status).publish_state(id(mqtt_optional) ? "not configured" : "connecting");
-    - priority: 110
-      then:
-        - lambda: 'id(setup_mode) = !id(provisioned);'
-        - if:
-            condition:
-              lambda: 'return id(setup_mode);'
-            then:
-              - display.page.show: page_setup
-              - delay: 1s
-              - lambda: |-
-                  uint32_t sig = 0x53455455u;   // 'SETU'
-                  auto mix = [&sig](uint32_t v) { sig = (sig ^ v) * 16777619u; };
-                  bool connected = id(wifi_component).is_connected();
-                  mix((uint32_t) connected);
-                  if (connected) {
-                    auto ips = id(wifi_component).wifi_sta_ip_addresses();
-                    if (!ips.empty()) {
-                      char ip_buf[40];
-                      ips[0].str_to(ip_buf);
-                      for (const char *pp = ip_buf; *pp; pp++) mix((uint8_t) *pp);
-                    }
-                  }
-                  if (id(epaper_display)->needs_render(sig)) {
-                    ESP_LOGD("screen", "setup render sig=%08x", (unsigned) sig);
-                    id(epaper_display).update();
-                    id(epaper_display)->commit_render(sig, false);
-                  }
-
-wifi:
-  ap:
-    ssid: "${ap_ssid}"
-    password: "${ap_password_sub}"
-    ap_timeout: 30s          # AP appears before the 120 s wake cap
-
-captive_portal:
 
 globals:
-  - id: provisioned
-    type: bool
-    restore_value: true
-    initial_value: 'false'
-  - id: setup_deadline
-    type: uint32_t
-    restore_value: false
-    initial_value: '0'
-  - id: ap_password
-    type: std::string
-    restore_value: false
-    initial_value: '""'
   - id: mqtt_save_deadline     # millis() deadline for the "connecting" phase; 0 = none
     type: uint32_t
     restore_value: false
@@ -172,47 +111,6 @@ text_sensor:
 
 button:
   - platform: template
-    id: finish_setup
-    name: "Finish setup (restart)"
-    internal: true
-    entity_category: config
-    web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 60
-    on_press:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(wifi_component).is_connected();'
-            then:
-              - lambda: 'id(provisioned) = true;'
-              - delay: 1500ms
-              - button.press: restart_button
-  - platform: template
-    id: reset_setup
-    name: "Reset to setup"
-    internal: true
-    entity_category: config
-    web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 70
-    on_press:
-      then:
-        - lambda: |-
-            id(mqtt_broker).make_call().set_value("").perform();
-            id(mqtt_username).make_call().set_value("").perform();
-            id(mqtt_password).make_call().set_value("").perform();
-            id(mqtt_port).make_call().set_value("1883").perform();
-            id(co2_offset).make_call().set_value(0).perform();
-            id(temp_offset).make_call().set_value(1.0).perform();
-            id(hum_offset).make_call().set_value(0).perform();
-            id(altitude).make_call().set_value(500).perform();
-            id(sleep_interval).make_call().set_value(15).perform();
-            id(room_label).make_call().set_value("CO2").perform();
-            id(provisioned) = false;
-        - delay: 1500ms
-        - button.press: restart_button
-  - platform: template
     id: save_mqtt
     name: "Save MQTT settings"
     internal: true
@@ -246,83 +144,16 @@ button:
             if (id(mqtt_port).state != std::to_string(port))   // echo effective port back to the input
               id(mqtt_port).publish_state(std::to_string(port));
 
-display:
-  - id: !extend epaper_display
-    pages:
-      - id: page_setup
-        lambda: |-
-          if (it.get_native_width() > 200) {
-            if (id(wifi_component).is_connected()) {
-              char ip_buf[40];
-              auto ips = id(wifi_component).wifi_sta_ip_addresses();
-              ips[0].str_to(ip_buf);
-              it.print(0, 46, id(font_label_lg), "WIFI OK");
-              it.print(0, 80, id(font_label_lg), "OPEN IN BROWSER");
-              it.printf(0, 114, id(font_label_lg), "http://%s", ip_buf);
-              it.print(0, 160, id(font_label_lg), "SET MQTT / OFFSETS");
-              it.print(0, 194, id(font_label_lg), "THEN FINISH");
-            } else {
-              it.print(0, 46, id(font_label_lg), "1 JOIN WIFI");
-              it.printf(0, 80, id(font_label_lg), "JOIN %s", "${ap_ssid}");
-              it.printf(0, 114, id(font_label_lg), "PASS %s", "${ap_password_sub}");
-              it.print(0, 148, id(font_label_lg), "2 OPEN");
-              it.print(0, 182, id(font_label_lg), "192.168.4.1");
-              it.print(0, 216, id(font_label_lg), "3 SETTINGS IN WEB");
-              it.print(0, 250, id(font_label_lg), "4 PRESS FINISH");
-            }
-          } else {
-            it.print(0, 0, id(font_label), "SETUP MODE");
-            it.line(0, 20, 200, 20);
-            if (id(wifi_component).is_connected()) {
-              char ip_buf[40];
-              auto ips = id(wifi_component).wifi_sta_ip_addresses();
-              it.print(0, 32, id(font_label), "WIFI OK");
-              it.print(0, 56, id(font_label), "OPEN IN BROWSER");
-              it.printf(0, 80, id(font_label), "http://%s", ips[0].str_to(ip_buf));
-              it.print(0, 120, id(font_label), "SET MQTT / OFFSETS");
-              it.print(0, 160, id(font_label), "THEN FINISH");
-            } else {
-              it.print(0, 32, id(font_label), "1 JOIN WIFI");
-              it.printf(0, 56, id(font_label), "JOIN %s", "${ap_ssid}");
-              it.printf(0, 80, id(font_label), "PASS %s", "${ap_password_sub}");
-              it.print(0, 104, id(font_label), "2 OPEN");
-              it.print(0, 128, id(font_label), "192.168.4.1");
-              it.print(0, 152, id(font_label), "3 SETTINGS IN WEB");
-              it.print(0, 176, id(font_label), "4 PRESS FINISH");
-            }
-          }
-
-interval:
-  - interval: 1s
+script:
+  - id: !extend reset_extra
     then:
       - lambda: |-
-          if (id(setup_mode)) {
-            id(allow_sleep) = id(setup_deadline) != 0 && millis() > id(setup_deadline);
-          }
-  - interval: 1s
-    then:
-      - if:
-          condition:
-            display.is_displaying_page: page_setup
-          then:
-            - lambda: |-
-                uint32_t sig = 0x53455455u;   // 'SETU'
-                auto mix = [&sig](uint32_t v) { sig = (sig ^ v) * 16777619u; };
-                bool connected = id(wifi_component).is_connected();
-                mix((uint32_t) connected);
-                if (connected) {
-                  auto ips = id(wifi_component).wifi_sta_ip_addresses();
-                  if (!ips.empty()) {
-                    char ip_buf[40];
-                    ips[0].str_to(ip_buf);
-                    for (const char *pp = ip_buf; *pp; pp++) mix((uint8_t) *pp);
-                  }
-                }
-                if (id(epaper_display)->needs_render(sig)) {
-                  ESP_LOGD("screen", "setup render sig=%08x", (unsigned) sig);
-                  id(epaper_display).update();
-                  id(epaper_display)->commit_render(sig, false);
-                }
+          id(mqtt_broker).make_call().set_value("").perform();
+          id(mqtt_username).make_call().set_value("").perform();
+          id(mqtt_password).make_call().set_value("").perform();
+          id(mqtt_port).make_call().set_value("1883").perform();
+
+interval:
   - interval: 30s
     then:
       - if:

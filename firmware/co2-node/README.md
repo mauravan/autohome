@@ -27,13 +27,17 @@ ids the dashboard already references (`sensor.top_floor_co2`, `_temperature`,
 
 | File | Purpose |
 |---|---|
-| `co2-node-core.yaml` | Shared hardware package: ESP32, WiFi, MQTT, SCD41, e-paper, deep sleep, OTA, safe_mode |
+| `co2-node-core.yaml` | Shared aggregator: base + WiFi/MQTT/SNTP transport + setup flow |
+| `co2-node-base.yaml` | Shared hardware package: ESP32, SCD41, e-paper, deep sleep, OTA, safe_mode |
+| `co2-node-wifi.yaml` | WiFi/MQTT/SNTP transport (the WiFi component itself lives in `co2-node-setup.yaml`) |
+| `co2-node-ble.yaml` | BLE/BTHome transport; WiFi stays off except during setup/cold-boot config window |
+| `co2-node-setup.yaml` | Shared QR/AP/captive-portal setup flow, finish/reset buttons, `provisioned` flag |
 | `co2-node-webui.yaml` | Web server + auth + sorting groups |
 | `co2-node-secure.yaml` | Product-only: NVS encryption, signed OTA, downgrade protection |
-| `co2-node-home.yaml` | Home package: station WiFi + home MQTT/offsets defaults (merged with common) |
+| `co2-node-home.yaml` | Home package: default MQTT broker + SNTP servers (station WiFi is provisioned, not compiled in) |
 | `gift.yaml` | Gift build: generic MAC-suffixed identity, unprovisioned defaults, no station creds |
-| `top.yaml` / `mid.yaml` / `bottom.yaml` | Per-floor identity + `!include` of common + home packages |
-| `secrets.yaml.example` | Template for git-ignored `secrets.yaml` |
+| `top.yaml` / `mid.yaml` / `bottom.yaml` | Per-floor identity + `!include` of core + home packages |
+| `secrets.yaml.example` | Template for git-ignored `secrets.yaml` (only MQTT/OTA secrets are used now) |
 | `README.md` | This file |
 
 ## Pinout schema (ESP32-C3 SuperMini / `esp32-c3-devkitm-1`)
@@ -95,9 +99,13 @@ esphome run top.yaml --device /dev/ttyACM0
 API (`api:`) is configured — HA integration is MQTT; the node also serves a local web
 UI on port 80 (plus the captive portal for WiFi setup, which also exposes HTTP OTA).
 
-Serial monitor should show, in order: boot → `WiFi connected` → 5× SCD41 single-shot
-measurements (~5 s each) → CO₂/temp/humidity mean logged → `MQTT connected` → display
-render → `Entering deep sleep`. Then silence for ~5 min before the wake sequence repeats.
+Serial monitor should show, in order: boot → setup QR/AP → (after joining the home
+WiFi through the captive portal) `WiFi connected` → 5× SCD41 single-shot measurements
+(~5 s each) → CO₂/temp/humidity mean logged → `MQTT connected`. On cold boots the
+screen holds the centered cog + IP for 60 s after everything is ready, then renders
+the readings page and `Entering deep sleep`. Timer wakes skip the config window and
+sleep as soon as the reading is advertised. Then silence for ~5 min before the wake
+sequence repeats.
 
 Confirm telemetry from the workstation:
 
@@ -167,10 +175,12 @@ Build/flash `gift.yaml` over USB; for a clean identity run
 existing node instead: press `Reset to setup` in its web UI before unplugging (clears
 MQTT creds/offsets and sets `provisioned=false`).
 
-Recipient flow: join `co2-setup` / `co2setup`, open `192.168.4.1`, pick the home WiFi
-(2.4 GHz/WPA2), reconnect the phone to the home WiFi, open the IP shown on the screen,
-set offsets/room label; MQTT is optional (press 'Save MQTT settings' to apply it
-without restarting), then press `Finish setup`.
+Recipient flow: the first boot shows a QR code; scan it to join the setup AP
+(`co2-setup`, or `co2-setup-top` / `co2-setup-mid` / `co2-setup-bottom` for the
+home floors), open `192.168.4.1`, pick the home WiFi (2.4 GHz/WPA2). The screen
+flips to a centered cog with the station IP below; reconnect the phone to the home
+WiFi, open that IP, set offsets/room label. MQTT is optional (press 'Save MQTT
+settings' to apply it without restarting), then press `Finish setup`.
 
 MQTT: leave broker empty for local-only; `homeassistant.local` works when Mosquitto runs
 on the HA host, otherwise enter the broker IP; create broker credentials in HA. Entities

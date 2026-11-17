@@ -6,6 +6,12 @@ substitutions:
 # for `duration`, renders the e-paper, and deep-sleeps with WiFi off.
 # `ble_name` is set per build and MUST stay <= 10 chars so the full payload
 # (battery + temp + humidity + CO2 + name) fits the 31-byte advertisement.
+
+# WiFi exists only for setup and the cold-boot config window (co2-node-setup.yaml);
+# timer wakes never enable it — the rail stays cold and BLE carries the data.
+wifi:
+  enable_on_boot: false
+
 external_components:
   - source:
       type: local
@@ -34,17 +40,11 @@ bthome_adv:
 esphome:
   on_boot:
     - priority: 790   # after the switch + restoring globals (HARDWARE 800), before base's
-      then:           # 750/100 readers of allow_light_sleep. At the old priority 90 those
-                      # readers had already evaluated the flag as false on every wake; only
-                      # cold boots ever took the light-sleep path, and only because the boot
-                      # render's 1 s delay yields across setup — an accident, and the root
-                      # of the cold-boot failures.
+      then:           # 750/100 readers of allow_light_sleep.
         - lambda: |-
-            id(allow_light_sleep) = ${light_sleep_enabled};
-            id(link_label) = "BLE";
-            id(data_label) = "BTHOME";
-            id(data_detail) = "";
-            id(ip_text) = "";
+            // Cold boots run the WiFi config window (CPU awake anyway); light sleep is
+            // only meaningful on timer wakes.
+            id(allow_light_sleep) = ${light_sleep_enabled} && !id(cold_boot);
 
 script:
   - id: !extend transport_publish
@@ -56,11 +56,6 @@ interval:
   - interval: 100ms
     then:
       - lambda: |-
-          id(link_ok) = id(ble_hub).is_active();
-          id(data_ok) = id(bthome).is_advertising() || id(bthome).is_done();
           if (id(bthome).is_done() || millis() > 25000) {
             id(transport_ready) = true;
-            // Open the sleep gate now; base's 1 s interval would otherwise add up to 1 s.
-            if (!id(setup_mode))
-              id(allow_sleep) = true;
           }

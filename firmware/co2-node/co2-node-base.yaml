@@ -58,18 +58,19 @@ esphome:
       then:
         - if:
             condition:
-              lambda: 'return !id(setup_mode);'
+              lambda: 'return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED;'
             then:
+              - display.page.show: page_boot
+              - lambda: 'id(epaper_display)->force_render();'
+              - delay: 1s                  # panel powered at setup; settle before first render
+            else:
               - if:
                   condition:
-                    lambda: 'return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED;'
+                    lambda: 'return !id(setup_mode);'
                   then:
-                    - display.page.show: page_boot
-                    - lambda: 'id(epaper_display)->force_render();'
-                    - delay: 1s                  # panel powered at setup; settle before first render
-                    - component.update: epaper_display   # boot page v1: cold start only
-                  else:
                     - display.page.show: page_normal   # timer wake: no render, keep persisted sleeping image
+                  else:
+                    - display.page.show: page_boot     # setup window continuing; sig-guarded, no forced render
         - if:
             condition:
               lambda: 'return id(allow_light_sleep) && !id(setup_mode);'
@@ -194,6 +195,7 @@ font:
       - "\U0000e7b0"  # co2
       - "\U0000e1ff"  # device_thermostat (thermometer)
       - "\U0000e798"  # water_drop
+      - "\U0000e8b8"  # settings (cog)
   - file: "fonts/MaterialIcons-Regular.ttf"
     id: font_status
     size: 16
@@ -208,6 +210,11 @@ font:
   - file: "fonts/Roboto-Regular.ttf"
     id: font_value_lg
     size: 60
+  - file: "fonts/MaterialIcons-Regular.ttf"
+    id: font_cog_lg
+    size: 120
+    glyphs:
+      - "\U0000e8b8"  # settings (cog)
   - file: "fonts/MaterialIcons-Regular.ttf"
     id: font_icons_footer
     size: 24
@@ -231,10 +238,6 @@ font:
       - "\U0000ebdd"  # battery_3_bar
 
 globals:
-  - id: boot_shown
-    type: uint8_t
-    initial_value: '0'
-    restore_value: false
   - id: allow_sleep
     type: bool
     restore_value: false
@@ -275,30 +278,6 @@ globals:
     type: bool
     restore_value: false
     initial_value: 'false'
-  - id: link_ok
-    type: bool
-    restore_value: false
-    initial_value: 'false'
-  - id: data_ok
-    type: bool
-    restore_value: false
-    initial_value: 'false'
-  - id: link_label
-    type: std::string
-    restore_value: false
-    initial_value: '"LINK"'
-  - id: data_label
-    type: std::string
-    restore_value: false
-    initial_value: '"DATA"'
-  - id: data_detail
-    type: std::string
-    restore_value: false
-    initial_value: '""'
-  - id: ip_text
-    type: std::string
-    restore_value: false
-    initial_value: '""'
   - id: wall_clock_valid
     type: bool
     restore_value: false
@@ -366,15 +345,6 @@ sensor:
           - lambda: |-
               // SCD41 -> power_down (0x36e0); the next wake power-cycles the rail (on_boot priority 750).
               id(scd41_sensor)->write_command((uint16_t) 0x36e0);
-          - if:
-              condition:
-                display.is_displaying_page: page_boot
-              then:
-                - lambda: |-
-                    // Re-arm the 1 s boot poll after this render so it does not redraw the same image.
-                    id(boot_shown) = (uint8_t) ((id(link_ok) ? 1 : 0) | (id(data_ok) ? 2 : 0));
-                - lambda: 'id(epaper_display).update();'
-                - delay: 3s            # checkmark dwell: the reading is on the glass before the page flips
           - script.execute: finish_wake
   - platform: template
     id: wake_duration
@@ -410,9 +380,10 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            // Li-ion OCV -> SoC, piecewise-linear (resting cell voltage). Linear 3.6-4.2 V was wrong:
-            // a Li-ion rests at ~82 % at 4.0 V and ~43 % at 3.8 V, not 67 % / 33 %.
-            static const float V_TBL[] = {3.00f, 3.55f, 3.68f, 3.74f, 3.77f, 3.79f, 3.82f, 3.87f, 3.92f, 3.98f, 4.06f, 4.20f};
+            // Li-ion OCV -> SoC, piecewise-linear (resting cell voltage). The anchors come from the
+            // standard Li-ion OCV table (3.00 V = 0 % ... 4.20 V = 100 %) rescaled to this cell's
+            // usable range: 3.60 V = empty (cutoff), 4.00 V = full (charge target). 3.8 V ~ 7 %.
+            static const float V_TBL[] = {3.6000f, 3.7833f, 3.8267f, 3.8467f, 3.8567f, 3.8633f, 3.8733f, 3.8900f, 3.9067f, 3.9267f, 3.9533f, 4.0000f};
             static const float P_TBL[] = {0.0f,  5.0f, 10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f, 70.0f, 80.0f, 90.0f, 100.0f};
             const int N = (int) (sizeof(V_TBL) / sizeof(V_TBL[0]));
             float v = x;
@@ -679,14 +650,10 @@ script:
                           - lambda: 'return id(reading_done);'
                           - lambda: 'return !isnan(id(battery_percent).state);'
                       then:
-                        - if:            # cold boot: hold the boot page so the 1 s poll can show the
-                            condition:   # transport checkmarks while the gate is still closed
-                              display.is_displaying_page: page_boot
-                            then:
-                              - wait_until:
-                                  condition:
-                                    lambda: 'return id(transport_ready);'
-                                  timeout: 60s
+                        - wait_until:
+                            condition:
+                              lambda: 'return id(allow_sleep);'
+                            timeout: 150s   # cold boot: transport bound (60 s) + 60 s config window + margin
                         - display.page.show: page_normal
                         - script.execute: render_normal_page
                       else:
@@ -778,75 +745,52 @@ display:
     pages:
       - id: page_boot
         lambda: |-
-          ESP_LOGI("screen", "boot link=%d data=%d (%s/%s)", id(link_ok), id(data_ok), id(link_label).c_str(), id(data_label).c_str());
+          const bool sta = id(wifi_component).is_connected();
+          char ip_buf[40]; ip_buf[0] = 0;
+          if (sta) {
+            auto ips = id(wifi_component).wifi_sta_ip_addresses();
+            if (!ips.empty()) ips[0].str_to(ip_buf);
+          }
           if (it.get_native_width() > 200) {
-            int w = it.get_width();
-            int h = it.get_height();
-            it.printf(0, 0, id(font_label_lg), "%s", id(room_label).state.c_str());
-            {
-              float bp = id(battery_percent).state;
-              it.print(w, 2, id(font_status_lg), TextAlign::TOP_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
-              if (isnan(bp)) {
-                it.print(w - 30, 2, id(font_label_lg), TextAlign::TOP_RIGHT, "-- %");
-              } else {
-                it.printf(w - 30, 2, id(font_label_lg), TextAlign::TOP_RIGHT, "%.0f %%", bp);
-              }
-            }
-            it.line(0, 32, w, 32);
-            const float rh = (h - 44 - 40) / 4.0f;
-            int y0 = 40 + (int)(rh * 0.5f);
-            int yl = 40 + (int)(rh * 1.5f);
-            int yd = 40 + (int)(rh * 2.5f);
-            int ys = 40 + (int)(rh * 3.5f);
-            it.print(0, y0, id(font_label_lg), TextAlign::TOP_LEFT, "BOOTING...");
-            it.printf(0, yl, id(font_label_lg), TextAlign::TOP_LEFT, "%s...", id(link_label).c_str());
-            if (!id(ip_text).empty()) {
-              it.print(w - 34, yl, id(font_label_lg), TextAlign::TOP_RIGHT, id(ip_text).c_str());
-            }
-            if (id(link_ok)) {
-              it.print(w, yl, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
-            }
-            it.printf(0, yd, id(font_label_lg), TextAlign::TOP_LEFT, "%s...", id(data_label).c_str());
-            it.print(w - 34, yd, id(font_label_lg), TextAlign::TOP_RIGHT, id(data_detail).c_str());
-            if (id(data_ok)) {
-              it.print(w, yd, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
-            }
-            it.print(0, ys, id(font_label_lg), TextAlign::TOP_LEFT, "SENSOR...");
-            if (!isnan(id(co2_value).state) && !isnan(id(temperature_value).state) &&
-                !isnan(id(humidity_value).state)) {
-              it.printf(w - 34, ys, id(font_label_lg), TextAlign::TOP_RIGHT, "%.0fppm %.1fC %.0f%%",
-                        id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
-              it.print(w, ys, id(font_status_lg), TextAlign::TOP_RIGHT, "\ue5ca");
+            const int w = it.get_width();
+            const int h = it.get_height();
+            if (sta) {
+              // initializing screen: cog centered, setup-page IP below
+              it.print(w / 2, h / 2 - 55, id(font_cog_lg), TextAlign::CENTER, "\ue8b8");
+              it.print(w / 2, h / 2 + 55, id(font_label_lg), TextAlign::CENTER, ip_buf);
+            } else if (id(wifi_component).is_ap_active()) {
+              // no station: QR to join the setup AP, AP IP below
+              const int qr_mods = id(ap_qr_code).get_size();   // generates once, then cached
+              const int reserve = 44;                          // bottom strip for the AP IP
+              const int side = (h - reserve < w) ? h - reserve : w;
+              const int qr_scale = side / qr_mods;
+              const int qr_px = qr_mods * qr_scale;
+              it.qr_code((w - qr_px) / 2, (h - reserve - qr_px) / 2, id(ap_qr_code), COLOR_ON, qr_scale);
+              char ap_buf[40];
+              id(wifi_component).wifi_soft_ap_ip().str_to(ap_buf);
+              it.print(w / 2, h - 8, id(font_label_lg), TextAlign::BOTTOM_CENTER, ap_buf);
+            } else {
+              // connecting, nothing to show yet
+              it.print(w / 2, h / 2, id(font_cog_lg), TextAlign::CENTER, "\ue8b8");
             }
           } else {
-            it.printf(0, 0, id(font_label), "%s", id(room_label).state.c_str());
-            {
-              float bp = id(battery_percent).state;
-              it.print(200, 8, id(font_status), TextAlign::CENTER_RIGHT, (isnan(bp) || bp > 65.0f) ? "\ue1a4" : (bp >= 35.0f ? "\uebdd" : "\ue19c"));
-              if (isnan(bp)) {
-                it.print(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "-- %");
-              } else {
-                it.printf(176, 8, id(font_label), TextAlign::CENTER_RIGHT, "%.0f %%", bp);
-              }
-            }
-            it.line(0, 20, 200, 20);
-            it.print(0, 30, id(font_label), "BOOTING...");
-            it.printf(0, 70, id(font_label), "%s...", id(link_label).c_str());
-            if (id(link_ok)) {
-              it.print(200, 70, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca");
-            }
-            it.printf(0, 100, id(font_label), "%s...", id(data_label).c_str());
-            if (id(data_ok)) { it.print(200, 100, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca"); }
-            if (!isnan(id(co2_value).state) && !isnan(id(temperature_value).state) &&
-                !isnan(id(humidity_value).state)) {
-              it.printf(0, 130, id(font_label), "%.0f %.1f %.0f",
-                        id(co2_value).state, id(temperature_value).state, id(humidity_value).state);
-              it.print(200, 130, id(font_status), TextAlign::CENTER_RIGHT, "\ue5ca");
+            const int w = it.get_width();
+            const int h = it.get_height();
+            if (sta) {
+              it.print(w / 2, h / 2 - 35, id(font_cog_lg), TextAlign::CENTER, "\ue8b8");
+              it.print(w / 2, h / 2 + 50, id(font_label), TextAlign::CENTER, ip_buf);
+            } else if (id(wifi_component).is_ap_active()) {
+              const int qr_mods = id(ap_qr_code).get_size();
+              const int reserve = 24;
+              const int side = (h - reserve < w) ? h - reserve : w;
+              const int qr_scale = side / qr_mods;
+              const int qr_px = qr_mods * qr_scale;
+              it.qr_code((w - qr_px) / 2, (h - reserve - qr_px) / 2, id(ap_qr_code), COLOR_ON, qr_scale);
+              char ap_buf[40];
+              id(wifi_component).wifi_soft_ap_ip().str_to(ap_buf);
+              it.print(w / 2, h - 4, id(font_label), TextAlign::BOTTOM_CENTER, ap_buf);
             } else {
-              it.print(0, 130, id(font_label), "SENSOR...");
-            }
-            if (!id(ip_text).empty()) {
-              it.print(0, 176, id(font_label), id(ip_text).c_str());
+              it.print(w / 2, h / 2, id(font_cog_lg), TextAlign::CENTER, "\ue8b8");
             }
           }
       - id: page_normal
@@ -955,8 +899,13 @@ interval:
   - interval: 1s
     then:
       - lambda: |-
-          if (id(setup_mode)) return;   // setup packages own allow_sleep
-          id(allow_sleep) = id(transport_ready);
+          if (id(setup_mode)) return;   // the setup package owns allow_sleep in setup mode
+          if (id(boot_ready_ms) == 0 &&
+              ((id(reading_done) && id(transport_ready)) || millis() > 60000UL))
+            id(boot_ready_ms) = millis();   // all-components-ready anchor; 60 s bound = dead transport still counts
+          const bool window_hold = id(cold_boot) &&
+              (id(boot_ready_ms) == 0 || (millis() - id(boot_ready_ms)) < 60000UL);
+          id(allow_sleep) = id(transport_ready) && !window_hold;
   - interval: 500ms
     then:
       - lambda: |-
@@ -969,12 +918,19 @@ interval:
             display.is_displaying_page: page_boot
           then:
             - lambda: |-
-                // Main-loop poll: re-render the boot page when the transport status changes.
-                // (connect callbacks run off the main loop — unsafe to render from there.)
-                uint8_t now = (id(link_ok) ? 1 : 0) | (id(data_ok) ? 2 : 0);
-                if (now != id(boot_shown)) {
-                  id(boot_shown) = now;
+                uint32_t sig = 0x424F4F54u;   // 'BOOT'
+                auto mix = [&sig](uint32_t v) { sig = (sig ^ v) * 16777619u; };
+                const bool sta = id(wifi_component).is_connected();
+                mix((uint32_t) sta);
+                mix((uint32_t) id(wifi_component).is_ap_active());
+                if (sta) {
+                  auto ips = id(wifi_component).wifi_sta_ip_addresses();
+                  if (!ips.empty()) { char b[40]; ips[0].str_to(b); for (const char *p = b; *p; p++) mix((uint8_t) *p); }
+                }
+                if (id(epaper_display)->needs_render(sig)) {
+                  ESP_LOGD("screen", "boot render sig=%08x", (unsigned) sig);
                   id(epaper_display).update();
+                  id(epaper_display)->commit_render(sig, false);
                 }
   - interval: 1s
     then:

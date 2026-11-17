@@ -1,7 +1,8 @@
-# Thin aggregator: transport-neutral base + WiFi/MQTT transport.
+# Thin aggregator: transport-neutral base + WiFi/MQTT transport + shared setup.
 # Existing builds (top/mid/bottom/gift/product/test) include THIS file so they
-# keep the WiFi+MQTT runtime unchanged. BLE builds include co2-node-base.yaml
-# + co2-node-ble*.yaml instead.
+# keep the WiFi+MQTT runtime. BLE builds include co2-node-base.yaml
+# + co2-node-ble.yaml + co2-node-setup.yaml instead.
 packages:
   base: !include co2-node-base.yaml
   wifi: !include co2-node-wifi.yaml
+  setup: !include co2-node-setup.yaml
