@@ -9,7 +9,7 @@ esphome:
   name: "${device_name}"
   friendly_name: "${friendly_name}"
   name_add_mac_suffix: true
-  comment: ""
+  comment: "BLE"
 
 packages:
   base: !include co2-node-base.yaml

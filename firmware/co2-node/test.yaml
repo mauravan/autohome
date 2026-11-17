@@ -14,7 +14,7 @@ esphome:
   name: "${device_name}"
   friendly_name: "${friendly_name}"
   name_add_mac_suffix: true
-  comment: "Bring-up + production test image (NOT for release)"
+  comment: "WiFi"
 
 # Checkerboard display page for pixel test; appended via extend.
 display:

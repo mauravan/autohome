@@ -3,6 +3,7 @@
 
 Patches applied to the stock ESPHome v3 web app bundle:
 - Replace the header ESPHome logo with the project wordmark from fonts/logo_green.png.
+- Force the page/header title to "Configuration" for every build.
 - Style all-button sorting groups (e.g. the "Actions" group) as full-width buttons.
 
 Stock bundle source: webui/stock_v3.html.gz
@@ -20,7 +21,7 @@ STOCK_GZ = ROOT / "webui" / "stock_v3.html.gz"
 BOOT_JS = ROOT / "webui" / "boot.js"
 LOGO_PNG = ROOT / "fonts" / "logo_green.png"
 HEADER = ROOT / "components" / "web_server" / "server_index_v3.h"
-ARRAY_COMMENT = "// Patched (logo + all-button group styling). Regenerate with tools/regen_webui_header.py; do not hand-edit.\n"
+ARRAY_COMMENT = "// Patched (logo + title + all-button group styling). Regenerate with tools/regen_webui_header.py; do not hand-edit.\n"
 
 
 def format_bytes(data: bytes) -> str:
@@ -40,7 +41,20 @@ def patch_html(html: bytes, logo_b64: str, boot_js: str) -> bytes:
     pos = html.find(marker)
     if pos == -1:
         raise RuntimeError("Could not find <meta charset=UTF-8> insertion point")
-    return html[: pos + len(marker)] + script.encode("utf-8") + html[pos + len(marker) :]
+    patched = html[: pos + len(marker)] + script.encode("utf-8") + html[pos + len(marker) :]
+
+    # Force the page/header title to "Configuration" regardless of device name.
+    patched = patched.replace(
+        b"setConfig(e){`log`in e||(e.log=this.config.log),this.config=e,document.title=e.title,e.lang&&(document.documentElement.lang=e.lang)}",
+        b"setConfig(e){`log`in e||(e.log=this.config.log),e.title=\"Configuration\",document.title=e.title,this.config=e,e.lang&&(document.documentElement.lang=e.lang)}",
+    )
+    patched = patched.replace(
+        b'renderTitle(){return D`<h1>${this.config.title||D`\xc2\xa0`}</h1><div>${[this.config.comment,`started ${this.uptime()}`].filter(e=>e).join(` \xc2\xb7 `)}</div>`}',
+        b'renderTitle(){return D`<h1>Configuration</h1><div>${[this.config.comment,`started ${this.uptime()}`].filter(e=>e).join(` \xc2\xb7 `)}</div>`}',
+    )
+    if b'<h1>Configuration</h1>' not in patched:
+        raise RuntimeError("renderTitle patch did not apply")
+    return patched
 
 
 def main() -> None:
