@@ -1,1 +1,0 @@
-silk_edge_clearance	2	Antenna overhang: ESP32 module keepout silk (x 71.25/84.75) crosses the top board edge by design; fab clips overhang silk with zero functional impact. Accepted; routing gate still requires review.

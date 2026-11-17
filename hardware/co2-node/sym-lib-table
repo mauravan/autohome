@@ -1,3 +1,0 @@
-(sym_lib_table (version 7)
-  (lib (name "co2-node") (type "KiCad") (uri "${KIPRJMOD}/sym/co2-node.kicad_sym") (options "") (descr "Local symbols"))
-)

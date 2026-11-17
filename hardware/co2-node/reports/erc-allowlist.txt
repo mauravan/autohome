@@ -1,1 +1,0 @@
-isolated_pin_label	20	Single-pin float nets by design: 14x NC_U10_* (module NC pads float individually), NC_TMR/NC_ITERM/NC_TD (datasheet float), EPD_P9/EPD_P10 (panel-only FPC pins), VDD33F (WeAct stub)
