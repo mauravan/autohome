@@ -10,4 +10,3 @@ packages:
   base: !include co2-node-base.yaml
   ble: !include co2-node-ble.yaml
   setup: !include co2-node-setup.yaml
-  webui: !include co2-node-webui.yaml

@@ -9,10 +9,11 @@ quietest load point (radio idle, SCD41 powered down, before the e-paper render) 
 via `sliding_window_moving_average` (window 3), matching the SCD41 channels.
 
 Two generic builds cover every unit: `wifi.yaml` and `ble.yaml` are identical images
-flashed to all units. Identity is configured at runtime through the setup AP / web UI:
+flashed to all units. Identity is configured at runtime through the setup AP / config page:
 
 - **Room label** (`room_label`): the e-paper header and (for BLE) the advertisement name.
-- **MQTT broker/credentials** (`wifi.yaml` / `test.yaml` only): configured in the web UI;
+  Required: **Finish setup** stays disabled until the label is saved.
+- **MQTT broker/credentials** (`wifi.yaml` / `test.yaml` only): configured on the config page;
   an empty broker disables MQTT and the unit runs local-only.
 - **HA identity**: the node name is `co2-sensor-<mac>` (`name_add_mac_suffix: true`).
   MQTT discovery uses the MAC for `unique_id` and the node name for `object_id`, so
@@ -30,9 +31,8 @@ flashed to all units. Identity is configured at runtime through the setup AP / w
 | `co2-node-base.yaml` | Shared hardware package: ESP32, SCD41, e-paper, deep sleep, OTA, safe_mode |
 | `co2-node-wifi.yaml` | WiFi/MQTT/SNTP transport with MAC-derived discovery identifiers |
 | `co2-node-ble.yaml` | BLE/BTHome transport; advertisement name copied from the runtime room label |
-| `co2-node-setup.yaml` | Shared QR/AP/captive-portal setup flow, finish/reset buttons, `provisioned` flag |
+| `co2-node-setup.yaml` | Shared QR/AP/captive-portal setup flow + config page, finish/reset buttons, `provisioned` flag |
 | `co2-node-mqtt.yaml` | Runtime MQTT broker/port/username/password inputs |
-| `co2-node-webui.yaml` | Web server + sorting groups |
 | `co2-node-secure.yaml` | Product-only security package (currently unused) |
 | `secrets.yaml.example` | Template for git-ignored `secrets.yaml` (OTA password; MQTT is runtime) |
 | `README.md` | This file |
@@ -86,15 +86,17 @@ CH340 port.
 
 ```bash
 cd firmware/co2-node
-cp secrets.yaml.example secrets.yaml   # fill in OTA password (MQTT is configured in the web UI)
+cp secrets.yaml.example secrets.yaml   # fill in OTA password (MQTT is configured on the config page)
 ls /dev/ttyACM* /dev/ttyUSB*           # find the board's port
 esphome config wifi.yaml               # expect "Configuration is valid"
 esphome run wifi.yaml --device /dev/ttyACM0
 ```
 
 `secrets.yaml` is git-ignored and never committed. Flash over USB serial. No native
-API (`api:`) is configured — HA integration is MQTT; the node also serves a local web
-UI on port 80 (plus the captive portal for WiFi setup (custom minimal page; HTTP OTA is not exposed there — use the web UI or serial flashing)).
+API (`api:`) is configured — HA integration is MQTT; the node serves a custom config
+page on port 80 (readings, setup inputs, action buttons, calibration/device settings
+behind an advanced toggle) plus the captive portal for WiFi setup. HTTP OTA is not
+exposed — use serial flashing.
 
 Serial monitor should show, in order: boot → setup QR/AP → (after joining the home
 WiFi through the captive portal) `WiFi connected` → 1× SCD41 single-shot (retried up
@@ -138,7 +140,7 @@ Same `co2-node-core.yaml` logic. When the C6 board is in hand, three changes:
 - `i2c.scan: false` — no boot-time bus probe.
 - Single gated e-paper refresh per wake (was two renders + a 1 s delay; `component.update`/`update()` blocks on BUSY, so one render is safe).
 - The 4.2" normal page shows the Zurich-local render time (`UPDATED DD.MM. HH:MM`) from SNTP. Its minute is included in the render signature, so the panel refreshes once per wake even when sensor values are unchanged; the 1.54" layout and skip-unchanged behavior are unchanged.
-- No-flash e-paper waveform: normal refreshes use the controller's display Mode 2 (`0x22=0xFC`, direct pixel update, no inversion), with a full Mode 1 cleanup (`0x22=0xF7`) on cold boot, on panel switch, and every Nth partial refresh (`# · Full refresh every` in the web UI, default 24 = `DEFAULT_PARTIAL_REFRESHES_BEFORE_FULL`).
+- No-flash e-paper waveform: normal refreshes use the controller's display Mode 2 (`0x22=0xFC`, direct pixel update, no inversion), with a full Mode 1 cleanup (`0x22=0xF7`) on cold boot, on panel switch, and every Nth partial refresh (`# · Full refresh every` on the config page, default 24 = `DEFAULT_PARTIAL_REFRESHES_BEFORE_FULL`).
 - `cpu_frequency: 80MHZ` — minimum for the C3.
 - `deep_sleep` after publish; SCD41 `power_down` (0x36e0) → ~0.8 µA between wakes.
 
@@ -169,15 +171,20 @@ Estimates, not measured. Per 5-min wake after the optimizations above:
 
 Build/flash `wifi.yaml` (or `ble.yaml`) over USB; for a clean identity run
 `python -m esptool --chip esp32c3 -p /dev/ttyACM0 erase_flash` first. To gift an
-existing node instead: press `Reset to setup` in its web UI before unplugging (clears
+existing node instead: press `Reset to setup` on its config page before unplugging (clears
 MQTT creds/offsets and sets `provisioned=false`).
 
 Recipient flow: the first boot shows a QR code; scan it to join the setup AP
 (`co2-setup`), open `192.168.4.1`, pick the home WiFi (2.4 GHz/WPA2). The screen
 flips to a centered cog with the station IP below; reconnect the phone to the home
-WiFi, open that IP, set the room label, offsets, and (for WiFi) MQTT broker. MQTT is
-optional (press 'Save MQTT settings' to apply it without restarting), then press
-`Finish setup`. The room label is required; `Finish setup` is blocked until it is set.
+WiFi and open that IP. The setup AP page is WiFi-join only on WiFi builds; BLE builds
+have no MQTT and are configured over the setup AP, so there it also shows the readings
+and configuration. The config page shows **Current readings** (CO2, temperature,
+humidity, battery), **Setup** (room label, MQTT broker/credentials for WiFi, status),
+and the action buttons (**Save MQTT settings**, **Finish setup**); calibration and
+device settings live behind **Show advanced settings**. MQTT is optional (press **Save
+MQTT settings** to apply it without restarting), then press **Finish setup**. The room
+label is required; **Finish setup** is blocked until it is saved.
 
 MQTT: leave broker empty for local-only; `homeassistant.local` works when Mosquitto runs
 on the HA host, otherwise enter the broker IP; create broker credentials in HA. Entities
@@ -189,10 +196,11 @@ Settings semantics:
   pressure compensation.
 - Offset changes apply immediately (the SCD41 is re-read, ~20 s); MQTT settings apply
   on 'Save MQTT settings' or restart.
-- **FRC flow**: power-cycle the unit (or press Reset to setup) to get the awake window,
-  place it in reference conditions (e.g. outside air), open the web UI, set
-  "ppm · FRC reference", press "Calibrate CO2 (FRC)". The baseline is persisted to the
-  SCD41's NVM — keep calibrations infrequent (months apart), NVM write cycles are consumed.
+- **FRC flow**: power-cycle the unit (or press **Reset to setup**) to get the awake
+  window, place it in reference conditions (e.g. outside air), open the config page,
+  press **Show advanced settings**, set "ppm · FRC reference", press **Calibrate CO2
+  (FRC)**. The baseline is persisted to the SCD41's NVM — keep calibrations infrequent
+  (months apart), NVM write cycles are consumed.
 - **Trend arrow**: CO₂ vs the previous wake, ±25 ppm deadband; no arrow right after a
   calibration or first boot.
 - **Smileys**: CO₂ happy below 1000 ppm; humidity happy strictly between 30 % and 60 %;
@@ -201,16 +209,19 @@ Settings semantics:
 
 Battery note: press `Finish setup` to stop the 30-minute setup window.
 
-Security: setup AP is WPA2 with the published password; the web UI on port 80 has no
-authentication; treat it as LAN-local. The UI also lists the internal
-`Peripheral Power` switch (because `include_internal` is on); leave it on. Device → '4.2 inch panel' selects the panel (off = 1.54", on = 4.2"); the choice is
-stored in NVS. Auto-detection is not possible: the panel interface is write-only SPI and
-SSD1681/SSD1683 expose no ID register.
+Security: setup AP is WPA2 with the published password; the config page on port 80 has no
+authentication; treat it as LAN-local. The page also lists the internal
+`Peripheral Power` switch behind **Show advanced settings** → **Device** (every entity is
+shown); leave it on. **Show advanced settings** → **Device** → '4.2 inch panel' selects
+the panel (off = 1.54", on = 4.2"); the choice is stored in NVS. Auto-detection is not possible:
+the panel interface is write-only SPI and SSD1681/SSD1683 expose no ID register.
 
 
 - Broker host `homeassistant.local` resolves via mDNS from the ESP. On `MQTT
   disconnected` / DNS failure, substitute the hub IP in `mqtt.broker`.
-- E-paper is WeAct 1.54" (200×200) or WeAct 4.2" (400×300) B/W, selected in the web UI (Device → '4.2 inch panel'). If the panel never initializes, check the rail, wiring, and BUSY line.
+- E-paper is WeAct 1.54" (200×200) or WeAct 4.2" (400×300) B/W, selected on the config
+  page (**Show advanced settings** → **Device** → '4.2 inch panel'). If the panel never initializes,
+  check the rail, wiring, and BUSY line.
 - `gfonts://Roboto` needs network at first compile. Offline: drop a local `.ttf` into
   `firmware/co2-node/fonts/` and point `font.file` at it.
 - Entity naming is distinct per unit because MQTT discovery uses the MAC address for

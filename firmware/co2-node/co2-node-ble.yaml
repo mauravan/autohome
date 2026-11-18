@@ -12,6 +12,10 @@ substitutions:
 # timer wakes never enable it — the rail stays cold and BLE carries the data.
 wifi:
   enable_on_boot: false
+captive_portal:
+  # BLE nodes have no MQTT and are provisioned over the setup AP: keep the
+  # readings + setup view on that page instead of the WiFi-join-only page.
+  config_on_ap: true
 
 external_components:
   - source:

@@ -20,6 +20,9 @@ wifi:
     password: "${ap_password_sub}"
     ap_timeout: 30s
 
+# Setup page mode (config_on_ap, default false): on WiFi builds the setup AP
+# serves a WiFi-join page only and the config page is served over the LAN once
+# the node has joined. BLE nodes set config_on_ap: true in co2-node-ble.yaml.
 captive_portal:
 
 qr_code:
@@ -91,29 +94,23 @@ text_sensor:
     internal: true
     entity_category: diagnostic
     update_interval: never
-    web_server:
-      sorting_group_id: grp_actions
-      sorting_weight: 5
 
 button:
   - platform: template
     id: finish_setup
-    name: "Finish setup (restart)"
+    name: "Finish setup"
     internal: true
     entity_category: config
-    web_server:
-      sorting_group_id: grp_actions
-      sorting_weight: 10
     on_press:
       then:
         # No STA-connected guard: BLE units may legitimately be configured over the AP.
         # A WiFi unit finished over the AP simply shows the QR again on its next cold
-        # boot (no saved STA) — self-correcting; recover via the web UI or reset_setup.
+        # boot (no saved STA) — self-correcting; recover via the config page or reset_setup.
         - if:
             condition: { lambda: 'return id(room_label).state.empty();' }
             then:
               - lambda: |-
-                  id(setup_status).publish_state("set the room label (Device section), then press Finish setup");
+                  id(setup_status).publish_state("set the room label above, then press Finish setup");
                   ESP_LOGW("setup", "finish blocked: room label empty");
             else:
               - lambda: |-
@@ -127,9 +124,7 @@ button:
     name: "Reset to setup"
     internal: true
     entity_category: config
-    web_server:
-      sorting_group_id: grp_actions
-      sorting_weight: 20
+    disabled_by_default: true
     on_press:
       then:
         - lambda: |-
@@ -159,7 +154,7 @@ interval:
           then:
             - lambda: |-
                 std::string st = id(room_label).state.empty()
-                    ? "set the room label (Device section), then press Finish setup"
+                    ? "set the room label above, then press Finish setup"
                     : "ready - press Finish setup";
                 if (id(setup_status).state != st)
                   id(setup_status).publish_state(st);

@@ -6,7 +6,7 @@ external_components:
   - source:
       type: local
       path: components
-    components: [runtime_epaper, scd4x, web_server, captive_portal]
+    components: [runtime_epaper, scd4x, captive_portal]
 
 esphome:
   on_boot:
@@ -315,9 +315,6 @@ sensor:
     co2:
       id: co2_value
       name: "CO2"
-      web_server:
-        sorting_group_id: grp_readings
-        sorting_weight: 10
       filters:
         - offset: !lambda |-
             float off = id(co2_offset).state;
@@ -325,9 +322,6 @@ sensor:
     temperature:
       id: temperature_value
       name: "Temperature"
-      web_server:
-        sorting_group_id: grp_readings
-        sorting_weight: 20
       filters:
         - offset: !lambda |-
             float off = id(temp_offset).state;
@@ -335,9 +329,6 @@ sensor:
     humidity:
       id: humidity_value
       name: "Humidity"
-      web_server:
-        sorting_group_id: grp_readings
-        sorting_weight: 30
       filters:
         - offset: !lambda |-
             float off = id(hum_offset).state;
@@ -363,9 +354,7 @@ sensor:
     device_class: voltage
     state_class: measurement
     accuracy_decimals: 2
-    web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 25
+    disabled_by_default: true
     filters:
       - multiply: 2.0   # battery-management board presents VBAT/2; scale back to cell volts
       - sliding_window_moving_average:
@@ -412,9 +401,6 @@ sensor:
     state_class: measurement
     accuracy_decimals: 0
     update_interval: never
-    web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 20
 
 number:
   - platform: template
@@ -422,17 +408,15 @@ number:
     name: "ppm · CO2 offset"
     internal: true
     entity_category: config
+    disabled_by_default: true
     optimistic: true
     restore_value: true
     min_value: -2000
     max_value: 2000
     step: 1
     initial_value: 0
-    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    unit_of_measurement: " "   # blank, not empty: the config page prints "undefined" when uom is absent; unit moved into name
     mode: slider
-    web_server:
-      sorting_group_id: grp_calibration
-      sorting_weight: 10
     set_action:
       then:
         - lambda: 'id(co2_offset).publish_state(x);'
@@ -442,17 +426,15 @@ number:
     name: "°C · Temperature offset"
     internal: true
     entity_category: config
+    disabled_by_default: true
     optimistic: true
     restore_value: true
     min_value: -10
     max_value: 10
     step: 0.1
     initial_value: 0
-    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    unit_of_measurement: " "   # blank, not empty: the config page prints "undefined" when uom is absent; unit moved into name
     mode: slider
-    web_server:
-      sorting_group_id: grp_calibration
-      sorting_weight: 20
     set_action:
       then:
         - lambda: 'id(temp_offset).publish_state(x);'
@@ -462,16 +444,14 @@ number:
     name: "% · Humidity offset"
     internal: true
     entity_category: config
+    disabled_by_default: true
     restore_value: true
     min_value: -20
     max_value: 20
     step: 0.5
     initial_value: 0
-    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    unit_of_measurement: " "   # blank, not empty: the config page prints "undefined" when uom is absent; unit moved into name
     mode: slider
-    web_server:
-      sorting_group_id: grp_calibration
-      sorting_weight: 30
     set_action:
       then:
         - lambda: 'id(hum_offset).publish_state(x);'
@@ -481,16 +461,14 @@ number:
     name: "m · Altitude"
     internal: true
     entity_category: config
+    disabled_by_default: true
     restore_value: true
     min_value: 0
     max_value: 3000
     step: 10
     initial_value: 500
-    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    unit_of_measurement: " "   # blank, not empty: the config page prints "undefined" when uom is absent; unit moved into name
     mode: slider
-    web_server:
-      sorting_group_id: grp_calibration
-      sorting_weight: 40
     set_action:
       then:
         - lambda: 'id(altitude).publish_state(x);'
@@ -500,6 +478,7 @@ number:
     name: "ppm · FRC reference"
     internal: true
     entity_category: config
+    disabled_by_default: true
     optimistic: true
     restore_value: true
     min_value: 400
@@ -508,9 +487,6 @@ number:
     initial_value: 420
     unit_of_measurement: " "
     mode: box
-    web_server:
-      sorting_group_id: grp_calibration
-      sorting_weight: 50
     set_action:
       then:
         - lambda: 'id(frc_reference).publish_state(x);'
@@ -519,17 +495,15 @@ number:
     name: "min · Sleep interval"
     internal: true
     entity_category: config
+    disabled_by_default: true
     optimistic: true
     restore_value: true
     min_value: 1
     max_value: 120
     step: 1
     initial_value: 15
-    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    unit_of_measurement: " "   # blank, not empty: the config page prints "undefined" when uom is absent; unit moved into name
     mode: box
-    web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 35
     set_action:
       then:
         - lambda: |-
@@ -540,17 +514,15 @@ number:
     name: "# · Full refresh every"
     internal: true
     entity_category: config
+    disabled_by_default: true
     optimistic: true
     restore_value: true
     min_value: 1
     max_value: 200
     step: 1
     initial_value: 24
-    unit_of_measurement: " "   # blank, not empty: v3 UI prints "undefined" when uom is absent; unit moved into name
+    unit_of_measurement: " "   # blank, not empty: the config page prints "undefined" when uom is absent; unit moved into name
     mode: box
-    web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 40
     set_action:
       then:
         - lambda: |-
@@ -764,9 +736,6 @@ text:
     mode: TEXT
     max_length: 16
     initial_value: ""
-    web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 10
     set_action:
       then:
         - lambda: 'id(room_label).publish_state(x);'
@@ -776,17 +745,13 @@ button:
     id: restart_button
     name: "Restart"
     internal: true
-    web_server:
-      sorting_group_id: grp_actions
-      sorting_weight: 30
+    disabled_by_default: true
   - platform: template
     id: calibrate_co2_button
     name: "Calibrate CO2 (FRC)"
     internal: true
     entity_category: config
-    web_server:
-      sorting_group_id: grp_actions
-      sorting_weight: 40
+    disabled_by_default: true
     on_press:
       then:
         - script.execute: perform_frc
@@ -798,18 +763,14 @@ switch:
     pin: GPIO20
     restore_mode: ALWAYS_ON   # HIGH at setup (HARDWARE 800) -> SCD41 + EPD rail up before display init (PROCESSOR 400)
     internal: true            # firmware-managed power gate, not an HA entity
-    web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 80
+    disabled_by_default: true
   - platform: template
     id: panel_42
     name: "4.2 inch panel"
     internal: true
+    disabled_by_default: true
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
-    web_server:
-      sorting_group_id: grp_device
-      sorting_weight: 70
     turn_on_action:
       - lambda: 'id(epaper_display)->set_panel_requested(true);'
     turn_off_action:
@@ -836,7 +797,7 @@ display:
             const int w = it.get_width();
             const int h = it.get_height();
             if (sta && ip_buf[0] != 0) {
-              // connected: QR opens the web UI at this address, URL + instruction below
+              // connected: QR opens the config page at this address, URL + instruction below
               id(url_qr_code).set_value(std::string("http://") + ip_buf);   // regenerates on next get_size()/draw
               const int qr_mods = id(url_qr_code).get_size();
               const int reserve = 70;                          // URL line (24 px) + instruction line (16 px)

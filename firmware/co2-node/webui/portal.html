@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CO2 sensor</title>
+<style>
+:root{--g:#2e7d32;--m:#777;--bd:#e4e4e4}
+*{box-sizing:border-box;margin:0}
+body{font:16px/1.5 system-ui,-apple-system,sans-serif;color:#111;background:#fff;
+     min-height:100vh;display:flex;justify-content:center;padding:24px 16px}
+main{width:100%;max-width:440px}
+img.logo{display:block;height:56px;margin:0 auto 16px}
+h1{font-size:20px;font-weight:600;text-align:center;color:var(--g)}
+p.sub{color:var(--m);font-size:14px;text-align:center;margin-top:2px}
+h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;
+   color:var(--m);margin:26px 0 8px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.card{border:1px solid var(--bd);border-radius:10px;padding:12px}
+.card .k{font-size:13px;color:var(--m)}
+.card .v{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.card .u{font-size:13px;color:var(--m);margin-left:3px}
+.row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--bd);
+     min-height:48px}
+.row:last-child{border-bottom:0}
+.row .grow{flex:1;min-width:0}
+.row label{font-size:13px;color:var(--m);display:block;margin-bottom:3px}
+.req{color:var(--g);margin-left:2px}
+.row .val{font-size:16px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row input,.row select{width:100%;padding:9px 11px;font:inherit;border:1px solid var(--bd);
+     border-radius:8px;outline:none;background:#fff}
+.row input:focus{border-color:var(--g)}
+button{min-height:44px;padding:11px 14px;font:inherit;font-weight:600;width:100%;
+       color:#fff;background:var(--g);border:0;border-radius:8px;cursor:pointer}
+button:disabled{opacity:.5}
+button.danger{background:#c62828}
+button.adv{background:transparent;color:var(--g);border:1px solid var(--bd)}
+.btns{margin-top:16px;display:grid;gap:10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid2 button{margin:0}
+ul#aps{list-style:none;border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+ul#aps:empty{display:none}
+ul#aps li{display:flex;justify-content:space-between;align-items:center;gap:12px;
+   padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--bd);min-height:48px}
+ul#aps li:last-child{border-bottom:0}
+ul#aps li:hover{background:#f5f8f5}
+.ssid{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.bars{color:var(--g);font-size:12px;letter-spacing:2px;flex:none}
+#other{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:10px;
+   padding:12px 14px;border:1px dashed var(--m);border-radius:10px;color:var(--m);
+   cursor:pointer;font-size:14px;min-height:48px}
+#other:hover{background:#f5f8f5}
+p.note{color:var(--m);font-size:14px;min-height:21px}
+#dlg{display:none;position:fixed;inset:0;align-items:center;justify-content:center;
+   background:rgba(0,0,0,.4);padding:20px;z-index:10}
+#dlg.show{display:flex}
+.card2{width:100%;max-width:340px;background:#fff;border-radius:12px;padding:20px;
+   box-shadow:0 4px 20px rgba(0,0,0,.15)}
+#dlg h3{font-size:18px;font-weight:600;color:var(--g);margin-bottom:4px;
+   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dlg p.subtitle{color:var(--m);font-size:13px;margin-bottom:16px}
+#ok{display:none;position:fixed;inset:0;align-items:center;justify-content:center;
+   background:rgba(0,0,0,.4);padding:20px;z-index:10}
+#ok.show{display:flex}
+#ok .card2{text-align:center}
+#ok svg{display:block;margin:0 auto 12px}
+#ok h3{font-size:18px;font-weight:600;color:var(--g)}
+#ok p{color:var(--m);font-size:14px;margin-top:8px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<img class="logo" src="/logo.png" alt="">
+<h1 id="title">CO2 sensor</h1>
+<p class="sub" id="sub"></p>
+
+<div id="wifi">
+<h2>WiFi</h2>
+<ul id="aps"></ul>
+<p class="note" id="noaps">Scanning…</p>
+<div id="other"><span class="ssid">Other network…</span></div>
+<p class="note" id="wifistatus"></p>
+</div>
+
+<div id="config">
+<h2>Current readings</h2>
+<div class="cards">
+  <div class="card" data-entity="sensor/CO2"><span class="k">CO2</span><div><span class="v">--</span><span class="u"></span></div></div>
+  <div class="card" data-entity="sensor/Temperature"><span class="k">Temperature</span><div><span class="v">--</span><span class="u"></span></div></div>
+  <div class="card" data-entity="sensor/Humidity"><span class="k">Humidity</span><div><span class="v">--</span><span class="u"></span></div></div>
+  <div class="card" data-entity="sensor/Battery"><span class="k">Battery</span><div><span class="v">--</span><span class="u"></span></div></div>
+</div>
+
+<h2>Setup</h2>
+<div class="row" data-entity="text/Room label">
+  <div class="grow"><label for="room_label">Room label <span class="req" aria-hidden="true">*</span></label><input id="room_label" maxlength="16" autocomplete="off" required></div>
+</div>
+<div class="row mqtt" data-entity="text/MQTT broker" hidden>
+  <div class="grow"><label for="mqtt_broker">MQTT broker</label><input id="mqtt_broker" maxlength="64" autocomplete="off"></div>
+</div>
+<div class="row mqtt" data-entity="text/MQTT port" hidden>
+  <div class="grow"><label for="mqtt_port">MQTT port</label><input id="mqtt_port" maxlength="5" inputmode="numeric" pattern="[0-9]{1,5}" autocomplete="off"></div>
+</div>
+<div class="row mqtt" data-entity="text/MQTT username" hidden>
+  <div class="grow"><label for="mqtt_username">MQTT username</label><input id="mqtt_username" maxlength="64" autocomplete="off"></div>
+</div>
+<div class="row mqtt" data-entity="text/MQTT password" hidden>
+  <div class="grow"><label for="mqtt_password">MQTT password</label><input id="mqtt_password" maxlength="128" autocomplete="off"></div>
+</div>
+<div class="row mqtt" data-entity="text_sensor/MQTT status" hidden>
+  <div class="grow"><label>MQTT status</label><div class="val">--</div></div>
+</div>
+<div class="row" data-entity="text_sensor/Setup status">
+  <div class="grow"><label>Setup status</label><div class="val">--</div></div>
+</div>
+
+<div class="btns">
+  <button id="savelabel" class="adv" data-save="text/Room label">Save room label</button>
+  <button id="savemqtt" class="adv mqtt" data-entity="button/Save MQTT settings" hidden>Save MQTT settings</button>
+  <button id="finish" data-entity="button/Finish setup" title="Set the room label first" disabled>Finish setup</button>
+  <button id="adv" class="adv" aria-expanded="false">Show advanced settings</button>
+</div>
+
+<div id="advanced" hidden>
+<h2>Calibration</h2>
+<div class="row" data-entity="number/ppm · CO2 offset">
+  <div class="grow"><label>CO2 offset (ppm)</label><input type="number" step="any"></div>
+</div>
+<div class="row" data-entity="number/°C · Temperature offset">
+  <div class="grow"><label>Temperature offset (°C)</label><input type="number" step="any"></div>
+</div>
+<div class="row" data-entity="number/% · Humidity offset">
+  <div class="grow"><label>Humidity offset (%)</label><input type="number" step="any"></div>
+</div>
+<div class="row" data-entity="number/m · Altitude">
+  <div class="grow"><label>Altitude (m)</label><input type="number" step="any"></div>
+</div>
+<div class="row" data-entity="number/ppm · FRC reference">
+  <div class="grow"><label>FRC reference (ppm)</label><input type="number" step="any"></div>
+</div>
+
+<h2>Device</h2>
+<div class="row" data-entity="number/min · Sleep interval">
+  <div class="grow"><label>Sleep interval (min)</label><input type="number" step="any"></div>
+</div>
+<div class="row" data-entity="number/# · Full refresh every">
+  <div class="grow"><label>Full refresh every (#)</label><input type="number" step="any"></div>
+</div>
+<div class="row" data-entity="switch/Peripheral Power">
+  <div class="grow"><label>Peripheral Power</label><div class="val">--</div></div>
+</div>
+<div class="row" data-entity="switch/4.2 inch panel">
+  <div class="grow"><label>4.2 inch panel</label><div class="val">--</div></div>
+</div>
+<div class="row" data-entity="sensor/Battery Voltage">
+  <div class="grow"><label>Battery Voltage</label><div class="val">--</div></div>
+</div>
+
+<div class="btns">
+  <button id="calibrate" class="adv" data-entity="button/Calibrate CO2 (FRC)">Calibrate CO2 (FRC)</button>
+  <div class="grid2">
+    <button id="restart" class="danger" data-entity="button/Restart">Restart</button>
+    <button id="reset" class="danger" data-entity="button/Reset to setup">Reset to setup</button>
+  </div>
+</div>
+</div>
+</div>
+
+<p class="note" id="logline"></p>
+</main>
+
+<div id="dlg">
+<div class="card2">
+<h3 id="dlgssid"></h3>
+<p class="subtitle" id="dlgsub">Enter the password.</p>
+<label for="ssid" id="ssidlabel" style="display:block;font-size:13px;color:var(--m);margin-bottom:4px">Network name</label>
+<input id="ssid" maxlength="32" autocomplete="off" style="width:100%;padding:9px 11px;font:inherit;border:1px solid var(--bd);border-radius:8px">
+<label for="psk" style="display:block;font-size:13px;color:var(--m);margin:14px 0 4px">Password</label>
+<input id="psk" type="password" style="width:100%;padding:9px 11px;font:inherit;border:1px solid var(--bd);border-radius:8px">
+<p class="note" id="dlgstatus"></p>
+<div class="grid2" style="margin-top:16px">
+<button class="adv" id="cancel">Cancel</button>
+<button id="connect">Connect</button>
+</div>
+</div>
+</div>
+<div id="ok">
+<div class="card2">
+<svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true">
+<circle cx="32" cy="32" r="30" fill="#2e7d32"/>
+<path d="M19 33l9 9 17-19" stroke="#fff" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+<h3>Wi-Fi saved</h3>
+<p id="oktext"></p>
+</div>
+</div>
+<script>
+const $=i=>document.getElementById(i);
+const state=new Map();
+const info={};
+let done=false,ssidSel=null,otherMode=false,advOpen=false;
+
+function entity(id){return document.querySelector('[data-entity="'+CSS.escape(id)+'"]');}
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+
+function apply(id,j){
+  const row=entity(id); if(!row)return;
+  row.hidden=false;
+  // MQTT entities exist only on WiFi builds; the first state reveals the whole group
+  if(id.startsWith('text/MQTT'))document.querySelectorAll('.mqtt').forEach(el=>el.hidden=false);
+  if(id.startsWith('number/')){
+    const inp=row.querySelector('input'); if(!inp)return;
+    inp.min=j.min_value==null?'':j.min_value;
+    inp.max=j.max_value==null?'':j.max_value;
+    inp.step=j.step==null?'any':j.step;
+    if(document.activeElement!==inp&&j.value!=null)inp.value=j.value;
+    return;
+  }
+  if(id.startsWith('text/')){
+    const inp=row.querySelector('input'); if(!inp)return;
+    if(document.activeElement!==inp&&j.value!=null)inp.value=j.value;
+    if(id==='text/Room label')updateFinish();
+    return;
+  }
+  if(id.startsWith('switch/')){
+    const sw=row.querySelector('input[type=checkbox]');
+    if(sw){sw.checked=j.state=='ON';return;}
+  }
+  // sensor cards and text_sensor rows: state text with a trailing unit split off
+  const u=j.uom||'',raw=j.state==null?'':String(j.state);
+  const v=(u&&raw.endsWith(' '+u))?raw.slice(0,-(u.length+1)):raw;
+  const card=row.querySelector('.v'),unit=row.querySelector('.u');
+  if(card)card.textContent=v; else {const d=row.querySelector('.val'); if(d)d.textContent=raw;}
+  if(unit)unit.textContent=u;
+}
+
+// Finish setup is gated on the room label the device actually stored, so a
+// typed-but-unsaved label keeps it disabled with a "save it" hint.
+function updateFinish(){
+  const typed=$('room_label').value.trim();
+  const saved=((state.get('text/Room label')||{}).value||'').trim();
+  const ok=typed!==''&&typed===saved;
+  $('finish').disabled=!ok;
+  $('finish').title=ok?'':(typed&&typed!==saved?'Save the room label first':'Set the room label first');
+}
+
+esphomeEvents();
+function esphomeEvents(){
+  const src=new EventSource('/events');
+  src.addEventListener('ping',e=>{
+    let c={};try{c=JSON.parse(e.data);}catch(_){}
+    Object.assign(info,c);   // keepalive pings carry only `uptime`
+    $('title').textContent=info.title||'CO2 sensor';
+    $('sub').textContent=[info.comment,('uptime '+(info.uptime|0)+'s')].filter(x=>x).join(' · ');
+    if(c.portal_active!=null){
+      const up=!!c.portal_active;
+      // Setup AP: WiFi-join page only, unless the build is configured over the AP
+      // (BLE nodes have no MQTT and set the room label / finish setup there).
+      $('wifi').hidden=!up;
+      $('config').hidden=up&&!info.config_on_ap;
+      if(up)poll();
+    }
+  });
+  src.addEventListener('state',e=>{
+    let j={};try{j=JSON.parse(e.data);}catch(_){return;}
+    state.set(j.id,j);apply(j.id,j);
+  });
+}
+
+function post(id,method,value){
+  const url='/'+id.split('/')[0]+'/'+encodeURIComponent(id.split('/').slice(1).join('/'))+'/'+method;
+  const body=value==null?'':'value='+encodeURIComponent(value);
+  fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body})
+    .then(r=>{if(!r.ok)$('logline').textContent='Action failed ('+r.status+')';});
+}
+
+document.querySelectorAll('[data-entity^="button/"]').forEach(b=>{
+  b.onclick=()=>post(b.getAttribute('data-entity'),'press');
+});
+document.querySelectorAll('[data-save]').forEach(b=>{
+  b.onclick=()=>{const id=b.getAttribute('data-save');const i=entity(id).querySelector('input');post(id,'set',i.value);};
+});
+$('room_label').addEventListener('input',updateFinish);
+updateFinish();
+document.querySelectorAll('[data-entity^="number/"]').forEach(row=>{
+  const inp=row.querySelector('input'); if(!inp)return;
+  inp.addEventListener('change',()=>{
+    const v=parseFloat(inp.value);
+    if(!isNaN(v))post(row.getAttribute('data-entity'),'set',String(v));
+  });
+});
+document.querySelectorAll('[data-entity^="switch/"]').forEach(row=>{
+  const id=row.getAttribute('data-entity');
+  const sw=document.createElement('input');sw.type='checkbox';sw.style.width='28px';sw.style.height='28px';
+  const grow=row.querySelector('.grow');
+  grow.appendChild(sw);
+  sw.addEventListener('change',()=>post(id,sw.checked?'turn_on':'turn_off'));
+});
+
+$('adv').onclick=()=>{
+  advOpen=!advOpen;$('advanced').hidden=!advOpen;
+  $('adv').textContent=advOpen?'Hide advanced settings':'Show advanced settings';
+  $('adv').setAttribute('aria-expanded',String(advOpen));
+};
+
+const BARS=n=>n>-50?'\u2582\u2584\u2586\u2588':n>-60?'\u2582\u2584\u2586':n>-70?'\u2582\u2584':'\u2582';
+function openDlg(ssid){
+  if(done)return;otherMode=(ssid===null);ssidSel=otherMode?null:ssid;
+  $('dlgstatus').textContent='';$('psk').value='';$('ssid').value='';
+  if(otherMode){$('dlgssid').style.display='none';$('ssidlabel').style.display='block';$('ssid').style.display='block';setTimeout(()=>$('ssid').focus(),0);}
+  else{$('dlgssid').style.display='block';$('dlgssid').textContent=ssid;$('ssidlabel').style.display='none';$('ssid').style.display='none';setTimeout(()=>$('psk').focus(),0);}
+  $('dlg').classList.add('show');
+}
+async function poll(){
+  if(done)return;
+  try{
+    const c=await(await fetch('/config.json',{cache:'no-store'})).json();
+    const ul=$('aps');ul.textContent='';
+    const aps=(c.aps||[]).filter(a=>a.ssid);
+    $('noaps').style.display=aps.length?'none':'block';
+    if(!aps.length)$('noaps').textContent='Scanning… no networks yet';
+    for(const a of aps){
+      const li=document.createElement('li');
+      const s=document.createElement('span');s.className='ssid';s.textContent=a.ssid;
+      const b=document.createElement('span');b.className='bars';b.textContent=BARS(a.rssi);
+      li.append(s,b);li.onclick=()=>openDlg(a.ssid);ul.append(li);
+    }
+  }catch(e){}
+}
+$('other').onclick=()=>openDlg(null);
+$('cancel').onclick=()=>{$('dlg').classList.remove('show');ssidSel=null;otherMode=false;};
+$('connect').onclick=async()=>{
+  const ssid=otherMode?$('ssid').value.trim():ssidSel;
+  const psk=$('psk').value;
+  if(otherMode&&!ssid){$('dlgstatus').textContent='Enter a network name.';return;}
+  done=true;$('connect').disabled=true;$('cancel').disabled=true;$('dlgstatus').textContent='Saving…';
+  try{
+    await fetch('/wifisave?ssid='+encodeURIComponent(ssid)+'&psk='+encodeURIComponent(psk),{cache:'no-store'});
+    $('dlg').classList.remove('show');
+    $('oktext').textContent='Saved \u2014 connecting to \u201c'+ssid+'\u201d. Reconnect to your network to finish setup.';
+    $('ok').classList.add('show');
+  }catch(e){
+    done=false;$('connect').disabled=false;$('cancel').disabled=false;
+    $('dlgstatus').textContent='Could not reach the device. Still on the setup network? Try again.';
+  }
+};
+</script>
+</body>
+</html>

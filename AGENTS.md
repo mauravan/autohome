@@ -30,8 +30,8 @@ Boot/on_boot scripts -> measure SCD41 -> filter offsets -> publish -> render e-p
 
 | Family | Root files | Packages |
 |---|---|---|
-|WiFi + MQTT|`wifi.yaml`, `test.yaml`|`co2-node-core.yaml` = base + wifi + setup + webui; `co2-node-mqtt.yaml` = runtime broker inputs|
-|BLE BTHome|`ble.yaml`|base + ble + setup + webui|
+|WiFi + MQTT|`wifi.yaml`, `test.yaml`|`co2-node-core.yaml` = base + wifi + setup; `co2-node-mqtt.yaml` = runtime broker inputs|
+|BLE BTHome|`ble.yaml`|base + ble + setup|
 
 Both share `co2-node-setup.yaml` for the captive-portal provisioning flow.
 
@@ -47,7 +47,7 @@ Transport (exclusive):
   WiFi: mqtt_client (HA discovery)
   BLE:  bthome_adv v2 advertisement
 Display: runtime_epaper <- values; RenderState decides re-render
-Web UI: web_server v3 + captive_portal on setup AP
+Web UI: captive_portal config page (port 80) + captive portal on setup AP
 Sleep: finish_wake -> allow_sleep gate -> deep_sleep
 ```
 
@@ -59,12 +59,11 @@ Sleep: finish_wake -> allow_sleep gate -> deep_sleep
 | `firmware/co2-node/components/` | Custom C++ components and Python bindings. |
 | `firmware/co2-node/components/scd4x/` | SCD41 driver (vendored from ESPHome 2026.10.1, single-shot modes). |
 | `firmware/co2-node/components/runtime_epaper/` | Dual-panel (1.54" / 4.2") e-paper driver with RTC render-state dedup. |
-| `firmware/co2-node/components/web_server/` | Patched ESPHome web UI v3; `server_index_v3.h` is generated. |
-| `firmware/co2-node/components/captive_portal/` | Captive portal for setup AP + DNS server (ESP-IDF). |
+| `firmware/co2-node/components/captive_portal/` | Captive portal + config page: DNS server, SSE transport (`sse_server`), entity routes (`entity_routes`), WiFi-join UI. |
 | `firmware/co2-node/components/bthome_adv/` | BTHome v2 advertisement encoder. |
-| `firmware/co2-node/webui/` | Inputs for web UI generation: `stock_v3.html.gz`, `boot.js`. |
+| `firmware/co2-node/webui/` | `portal.html` — source for the config page. |
 | `firmware/co2-node/fonts/` | Local fonts and logo (`Roboto`, `MaterialIcons`, `logo_green.png`). |
-| `firmware/co2-node/tools/` | `regen_webui_header.py` regenerates the patched v3 UI header. |
+| `firmware/co2-node/tools/` | `regen_portal_header.py` regenerates the config page header from `webui/portal.html`. |
 | `firmware/co2-node/.esphome/` | **Generated build/cache dir** — do not edit or commit. |
 
 ## Development Commands
@@ -98,11 +97,11 @@ esphome config wifi.yaml
 esphome config ble.yaml
 esphome config test.yaml
 
-# Regenerate the patched web UI header after editing webui/boot.js or fonts/logo_green.png
-python3 tools/regen_webui_header.py
+# Regenerate the config page header after editing webui/portal.html
+python3 tools/regen_portal_header.py
 
-# Optional: preview patched HTML in a browser
-python3 tools/regen_webui_header.py --emit-html /tmp/preview.html
+# Optional: preview the config page in a browser
+python3 tools/regen_portal_header.py --emit-html /tmp/preview.html
 ```
 
 Onboarding:
@@ -112,7 +111,7 @@ pip install esphome
 sudo apt install mosquitto-clients   # for MQTT verification
 
 cd firmware/co2-node
-cp secrets.yaml.example secrets.yaml   # fill in ota_password; MQTT is configured in the web UI
+cp secrets.yaml.example secrets.yaml   # fill in ota_password; MQTT is configured on the config page
 ```
 
 Flash a unit cleanly:
@@ -135,7 +134,9 @@ esphome run wifi.yaml --device /dev/ttyACM0
   Uniqueness in Home Assistant comes from `name_add_mac_suffix: true`,
   `discovery_unique_id_generator: mac`, and `discovery_object_id_generator: device_name`.
   Per-unit identity is the runtime `room_label` text input (e-paper header / BLE adv name).
-- **Secrets**: `!secret ota_password` in every build; `!secret ota_signing_key` for the unused `co2-node-secure.yaml` package. MQTT credentials are runtime web-UI inputs, not compile-time secrets.
+- **Config page default view**: the config page (`webui/portal.html`) shows **Current readings** and **Setup** by default; calibration and device settings are behind the page's **Show advanced settings** toggle. There is no `web_server:` entity config anymore — the page discovers entities over the SSE snapshot.
+- **Config page modes**: `captive_portal.config_on_ap` (default `false`) decides what the setup AP serves. WiFi builds show a WiFi-join-only page there and the readings/setup view over the LAN; BLE builds set `config_on_ap: true` in `co2-node-ble.yaml` because they are provisioned over the AP. The page hides the MQTT rows and **Save MQTT settings** until an MQTT entity state arrives, so BLE builds never show them.
+- **Secrets**: `!secret ota_password` in every build; `!secret ota_signing_key` for the unused `co2-node-secure.yaml` package. MQTT credentials are runtime config-page inputs, not compile-time secrets.
 
 ### C++ custom components
 
@@ -158,12 +159,11 @@ esphome run wifi.yaml --device /dev/ttyACM0
 - Auto-load chains:
   - `scd4x`: `["sensirion_common"]`
   - `runtime_epaper`: `["split_buffer", "epaper_spi"]`, `DEPENDENCIES = ["spi"]`
-  - `web_server`: `["json", "web_server_base"]`
-  - `captive_portal`: `web_server_base`, `socket` on ESP32
+  - `captive_portal`: `["json", "web_server_base"]` (+ `socket` on ESP32)
 
 ### Generated files
 
-- **`components/web_server/server_index_v3.h`** is generated by `tools/regen_webui_header.py`. Do not hand-edit. Edit `webui/boot.js` or the logo, then rerun the script.
+- **`components/captive_portal/config_index.h`** is generated by `tools/regen_portal_header.py` from `webui/portal.html`. Do not hand-edit. Edit `portal.html`, then rerun the script.
 - **`components/captive_portal/portal_logo.h`** is a C array header generated from `fonts/logo_green.png`; no script exists in the repo, so regenerate it manually if the logo changes.
 
 ## Important Files
@@ -177,10 +177,9 @@ esphome run wifi.yaml --device /dev/ttyACM0
 | `co2-node-base.yaml` | Hardware package: ESP32, I²C, SPI, SCD41, e-paper, battery, deep sleep, OTA, globals, render script. |
 | `co2-node-wifi.yaml` | WiFi/MQTT/SNTP transport, `sntp_poll.h` include, `transport_ready` gate. |
 | `co2-node-ble.yaml` | BLE/BTHome transport, local `external_components` listing, light-sleep flag. |
-| `co2-node-setup.yaml` | Captive portal AP, QR code, provisioning globals, finish/reset buttons. |
+| `co2-node-setup.yaml` | Captive portal AP, QR code, config page, provisioning globals, finish/reset buttons. |
 | `co2-node-mqtt.yaml` | Runtime MQTT broker/port/username/password inputs and factory-reset hook. |
 | `co2-node-secure.yaml` | Product-only security package (currently unused). **Burns eFuse key block 5 on first boot.** |
-| `co2-node-webui.yaml` | `web_server` v3 + sorting groups. Keep `compression: gzip` (default) or the patched UI is bypassed. |
 | `secrets.yaml.example` | Template for git-ignored `secrets.yaml`. |
 | `sntp_poll.h` | Inline SNTP helper; avoids including `<esp_sntp.h>`. |
 | `INVENTORY.md` (root) | Hardware inventory table. |
@@ -196,8 +195,8 @@ esphome run wifi.yaml --device /dev/ttyACM0
 - **Package manager**: Python `pip` for ESPHome; `mosquitto-clients` and `esptool` are optional host helpers.
 - **Generated build dir**: `firmware/co2-node/.esphome/` is git-ignored; do not commit it.
 - **Tool constraints**:
-  - `tools/regen_webui_header.py` uses stdlib only.
-  - `webui/stock_v3.html.gz` upgrades can silently break the byte-exact JS patches; verify `--emit-html` after any stock bundle change.
+  - `tools/regen_portal_header.py` uses stdlib only.
+  - `webui/portal.html` is the config page source; the gzipped `config_index.h` is generated and must be regenerated after edits.
   - The BLE advertisement name is copied from the runtime `room_label` (≤16 chars); the BTHome encoder trims it to fit the 31-byte payload (≈9 chars visible). Longer names can be renamed in HA.
 
 ## Testing & QA

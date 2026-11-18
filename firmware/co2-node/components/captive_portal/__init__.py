@@ -23,9 +23,11 @@ from esphome.types import ConfigType
 
 _LOGGER = logging.getLogger(__name__)
 
+CONF_CONFIG_ON_AP = "config_on_ap"
+
 
 def AUTO_LOAD() -> list[str]:
-    auto_load = ["web_server_base"]
+    auto_load = ["json", "web_server_base"]
     if CORE.is_esp32:
         auto_load.append("socket")
     return auto_load
@@ -43,6 +45,7 @@ CONFIG_SCHEMA = cv.All(
             cv.GenerateID(CONF_WEB_SERVER_BASE_ID): cv.use_id(
                 web_server_base.WebServerBase
             ),
+            cv.Optional(CONF_CONFIG_ON_AP, default=False): cv.boolean,
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_on(
@@ -95,7 +98,11 @@ async def to_code(config: ConfigType) -> None:
 
     var = cg.new_Pvariable(config[CONF_ID], paren)
     await cg.register_component(var, config)
+    cg.add(var.set_config_on_ap(config[CONF_CONFIG_ON_AP]))
     cg.add_define("USE_CAPTIVE_PORTAL")
+    from esphome.components.json import enable_arena
+
+    enable_arena()
     # The portal reads wifi scan results from the web server task; this makes the
     # wifi component guard them with a lock on multi-threaded platforms.
     wifi.request_wifi_scan_results_lock()

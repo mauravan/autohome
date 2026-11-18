@@ -12,7 +12,6 @@ esphome:
 packages:
   core: !include co2-node-core.yaml
   mqtt: !include co2-node-mqtt.yaml
-  webui: !include co2-node-webui.yaml
 
 # Checkerboard display page for pixel test; appended via extend.
 display:

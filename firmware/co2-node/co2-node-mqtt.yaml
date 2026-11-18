@@ -1,4 +1,4 @@
-# Runtime MQTT configuration: web-UI broker/port/username/password inputs,
+# Runtime MQTT configuration: config-page broker/port/username/password inputs,
 # applied at boot and via "Save MQTT settings". Broker empty = MQTT disabled
 # (local-only unit). The shared setup package (co2-node-setup.yaml) owns the
 # WiFi AP, captive portal, QR code, and the finish/reset setup buttons.
@@ -42,9 +42,6 @@ text:
     mode: TEXT
     max_length: 64
     initial_value: ""
-    web_server:
-      sorting_group_id: grp_mqtt
-      sorting_weight: 10
     set_action:
       then:
         - lambda: 'id(mqtt_broker).publish_state(x);'
@@ -53,15 +50,13 @@ text:
     name: "MQTT port"
     internal: true
     entity_category: config
+    disabled_by_default: true
     optimistic: true
     restore_value: true
     mode: TEXT
     pattern: "[0-9]{1,5}"   # hint only; empty/invalid falls back to 1883 in lambdas
     max_length: 5
     initial_value: "1883"
-    web_server:
-      sorting_group_id: grp_mqtt
-      sorting_weight: 20
     set_action:
       then:
         - lambda: 'id(mqtt_port).publish_state(x);'
@@ -74,9 +69,6 @@ text:
     restore_value: true
     mode: TEXT
     initial_value: ""
-    web_server:
-      sorting_group_id: grp_mqtt
-      sorting_weight: 30
     set_action:
       then:
         - lambda: 'id(mqtt_username).publish_state(x);'
@@ -87,12 +79,9 @@ text:
     entity_category: config
     optimistic: true
     restore_value: true
-    mode: TEXT   # not PASSWORD: v3 bundle only constrains input[type=text] to card width, unstyled password overflows
+    mode: TEXT   # not PASSWORD: the config page prefills password inputs from state; TEXT keeps the value visible
     max_length: 128
     initial_value: ""
-    web_server:
-      sorting_group_id: grp_mqtt
-      sorting_weight: 40
     set_action:
       then:
         - lambda: 'id(mqtt_password).publish_state(x);'
@@ -104,9 +93,6 @@ text_sensor:
     internal: true
     entity_category: diagnostic
     update_interval: never
-    web_server:
-      sorting_group_id: grp_mqtt
-      sorting_weight: 55
 
 button:
   - platform: template
@@ -114,9 +100,6 @@ button:
     name: "Save MQTT settings"
     internal: true
     entity_category: config
-    web_server:
-      sorting_group_id: grp_mqtt
-      sorting_weight: 50
     on_press:
       then:
         - lambda: |-
