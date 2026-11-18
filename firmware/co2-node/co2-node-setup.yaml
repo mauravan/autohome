@@ -26,6 +26,9 @@ qr_code:
   - id: ap_qr_code
     value: "${ap_qr}"
     ecc: LOW
+  - id: url_qr_code
+    value: "http://192.168.4.1"   # placeholder; overwritten with the live STA IP before every draw
+    ecc: LOW
 
 globals:
   - id: provisioned

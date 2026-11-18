@@ -190,7 +190,6 @@ font:
       - "\U0000e7b0"  # co2
       - "\U0000e1ff"  # device_thermostat (thermometer)
       - "\U0000e798"  # water_drop
-      - "\U0000e8b8"  # settings (cog)
       - "\U0000e813"  # sentiment_satisfied — happy
       - "\U0000e811"  # sentiment_dissatisfied — sad
   - file: "fonts/MaterialIcons-Regular.ttf"
@@ -836,10 +835,19 @@ display:
           if (it.get_native_width() > 200) {
             const int w = it.get_width();
             const int h = it.get_height();
-            if (sta) {
-              // initializing screen: cog centered, setup-page IP below
-              it.print(w / 2, h / 2 - 55, id(font_cog_lg), TextAlign::CENTER, "\ue8b8");
-              it.print(w / 2, h / 2 + 55, id(font_label_lg), TextAlign::CENTER, ip_buf);
+            if (sta && ip_buf[0] != 0) {
+              // connected: QR opens the web UI at this address, URL + instruction below
+              id(url_qr_code).set_value(std::string("http://") + ip_buf);   // regenerates on next get_size()/draw
+              const int qr_mods = id(url_qr_code).get_size();
+              const int reserve = 70;                          // URL line (24 px) + instruction line (16 px)
+              const int side = (h - reserve < w) ? h - reserve : w;
+              const int qr_scale = side / qr_mods;
+              const int qr_px = qr_mods * qr_scale;
+              it.qr_code((w - qr_px) / 2, (h - reserve - qr_px) / 2, id(url_qr_code), COLOR_ON, qr_scale);
+              char url_buf[48];
+              snprintf(url_buf, sizeof(url_buf), "http://%s", ip_buf);
+              it.print(w / 2, h - 62, id(font_label_lg), TextAlign::TOP_CENTER, url_buf);
+              it.print(w / 2, h - 8, id(font_label), TextAlign::BOTTOM_CENTER, "open in your browser for configuration");
             } else if (id(wifi_component).is_ap_active()) {
               // no station: QR to join the setup AP, AP IP below
               const int qr_mods = id(ap_qr_code).get_size();   // generates once, then cached
@@ -858,9 +866,19 @@ display:
           } else {
             const int w = it.get_width();
             const int h = it.get_height();
-            if (sta) {
-              it.print(w / 2, h / 2 - 35, id(font_cog_lg), TextAlign::CENTER, "\ue8b8");
-              it.print(w / 2, h / 2 + 50, id(font_label), TextAlign::CENTER, ip_buf);
+            if (sta && ip_buf[0] != 0) {
+              id(url_qr_code).set_value(std::string("http://") + ip_buf);
+              const int qr_mods = id(url_qr_code).get_size();
+              const int reserve = 70;                          // three 16 px text lines
+              const int side = (h - reserve < w) ? h - reserve : w;
+              const int qr_scale = side / qr_mods;
+              const int qr_px = qr_mods * qr_scale;
+              it.qr_code((w - qr_px) / 2, (h - reserve - qr_px) / 2, id(url_qr_code), COLOR_ON, qr_scale);
+              char url_buf[48];
+              snprintf(url_buf, sizeof(url_buf), "http://%s", ip_buf);
+              it.print(w / 2, h - 64, id(font_label), TextAlign::TOP_CENTER, url_buf);
+              it.print(w / 2, h - 44, id(font_label), TextAlign::TOP_CENTER, "open in your browser");
+              it.print(w / 2, h - 2, id(font_label), TextAlign::BOTTOM_CENTER, "for configuration");
             } else if (id(wifi_component).is_ap_active()) {
               const int qr_mods = id(ap_qr_code).get_size();
               const int reserve = 24;
