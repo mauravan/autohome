@@ -17,6 +17,7 @@
 #endif
 
 #include <cstdlib>
+#include <cstring>
 
 #ifdef USE_LIGHT
 #include "esphome/components/light/light_json_schema.h"
@@ -64,6 +65,22 @@ static const char *const TAG = "web_server";
 [[maybe_unused]] static void send_json(AsyncWebServerRequest *request, json::JsonBuilder &builder) {
   auto data = builder.serialize();
   request->send(200, ESPHOME_F("application/json"), data.c_str());
+}
+
+// Web UI shows a single device, so strip the friendly-name prefix ("Top Floor ")
+// that MQTT discovery requires on sensor names. Returns a pointer into `name`
+// past "<friendly_name> " when it matches, else the full name; length via `out_len`.
+static const char *web_ui_name(const StringRef &name, size_t &out_len) {
+  const std::string &friendly = App.get_friendly_name();  // empty if unset
+  out_len = name.size();
+  if (!friendly.empty()) {
+    const size_t flen = friendly.size();
+    if (out_len > flen + 1 && name[flen] == ' ' && memcmp(name.c_str(), friendly.c_str(), flen) == 0) {
+      out_len -= flen + 1;
+      return name.c_str() + flen + 1;
+    }
+  }
+  return name.c_str();
 }
 
 // Parse URL and return match info
@@ -175,9 +192,13 @@ EntityMatchResult UrlMatch::match_entity(EntityBase *entity) const {
   }
 #endif
 
-  // Match by entity name
+  // Match by entity name (full name first, then stripped web-UI name)
   if (this->id == entity->get_name()) {
     result.matched = true;
+  } else {
+    size_t ui_len;
+    const char *ui = web_ui_name(entity->get_name(), ui_len);
+    result.matched = (this->id.size() == ui_len && memcmp(this->id.c_str(), ui, ui_len) == 0);
   }
 
   return result;
@@ -596,8 +617,13 @@ static void set_json_id(JsonObject root, EntityBase *obj, const char *prefix, Js
 
   if (start_config == DETAIL_ALL) {
     root[ESPHOME_F("domain")] = prefix;
-    // Use .c_str() to avoid instantiating set<StringRef> template (saves ~24B)
-    root[ESPHOME_F("name")] = name.c_str();
+    // Strip the friendly-name prefix for the web UI; MQTT discovery still uses the full name.
+    size_t ui_name_len;
+    const char *ui_name = web_ui_name(name, ui_name_len);
+    char ui_name_buf[ESPHOME_FRIENDLY_NAME_MAX_LEN + 1];
+    memcpy(ui_name_buf, ui_name, ui_name_len);
+    ui_name_buf[ui_name_len] = '\0';
+    root[ESPHOME_F("name")] = static_cast<const char *>(ui_name_buf);
 #ifdef USE_DEVICES
     if (device_name) {
       root[ESPHOME_F("device")] = device_name;
