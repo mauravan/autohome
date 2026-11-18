@@ -112,7 +112,7 @@ button:
       then:
         - lambda: |-
             id(co2_offset).make_call().set_value(0).perform();
-            id(temp_offset).make_call().set_value(1.0).perform();
+            id(temp_offset).make_call().set_value(0).perform();
             id(hum_offset).make_call().set_value(0).perform();
             id(altitude).make_call().set_value(500).perform();
             id(frc_reference).make_call().set_value(420).perform();

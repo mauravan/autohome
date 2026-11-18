@@ -185,8 +185,9 @@ on the HA host, otherwise enter the broker IP; create broker credentials in HA. 
 arrive via discovery; topics use `co2-sensor-<mac>/…`.
 
 Settings semantics:
-- CO2/humidity offsets are additive; temperature offset is the SCD41 internal offset
-  (also affects RH); altitude is pressure compensation.
+- CO2/humidity/temperature offsets are all additive corrections applied in software;
+  the SCD41's internal 1 °C self-heating offset stays fixed. Altitude is chip-side
+  pressure compensation.
 - Offset changes apply immediately (the SCD41 is re-read, ~20 s); MQTT settings apply
   on 'Save MQTT settings' or restart.
 - **FRC flow**: power-cycle the unit (or press Reset to setup) to get the awake window,
