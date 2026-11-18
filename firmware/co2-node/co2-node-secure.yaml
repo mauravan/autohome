@@ -1,6 +1,6 @@
-# Product-only security package. Include ONLY in product.yaml — never in
-# home builds (the first boot burns eFuse key block 5 and wipes NVS
-# preferences once; test on one unit before the batch).
+# Product-only security package. Currently unused — no build file includes it
+# (the first boot burns eFuse key block 5 and wipes NVS preferences once;
+# test on one unit before any batch).
 substitutions:
   ota_signing_key: !secret ota_signing_key
 

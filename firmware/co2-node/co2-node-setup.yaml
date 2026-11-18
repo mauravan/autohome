@@ -84,6 +84,17 @@ esphome:
             then:
               - wifi.enable:
 
+text_sensor:
+  - platform: template
+    id: setup_status
+    name: "Setup status"
+    internal: true
+    entity_category: diagnostic
+    update_interval: never
+    web_server:
+      sorting_group_id: grp_actions
+      sorting_weight: 5
+
 button:
   - platform: template
     id: finish_setup
@@ -98,11 +109,19 @@ button:
         # No STA-connected guard: BLE units may legitimately be configured over the AP.
         # A WiFi unit finished over the AP simply shows the QR again on its next cold
         # boot (no saved STA) — self-correcting; recover via the web UI or reset_setup.
-        - lambda: |-
-            id(provisioned) = true;
-            id(skip_boot_window) = true;
-        - delay: 1500ms
-        - button.press: restart_button
+        - if:
+            condition: { lambda: 'return id(room_label).state.empty();' }
+            then:
+              - lambda: |-
+                  id(setup_status).publish_state("set the room label (Device section), then press Finish setup");
+                  ESP_LOGW("setup", "finish blocked: room label empty");
+            else:
+              - lambda: |-
+                  id(provisioned) = true;
+                  id(skip_boot_window) = true;
+                  id(setup_status).publish_state("setup complete");
+              - delay: 1500ms
+              - button.press: restart_button
   - platform: template
     id: reset_setup
     name: "Reset to setup"
@@ -120,7 +139,7 @@ button:
             id(altitude).make_call().set_value(500).perform();
             id(frc_reference).make_call().set_value(420).perform();
             id(sleep_interval).make_call().set_value(15).perform();
-            id(room_label).make_call().set_value("CO2").perform();
+            id(room_label).make_call().set_value("").perform();
             id(provisioned) = false;
             id(skip_boot_window) = false;
         - script.execute: reset_extra
@@ -133,6 +152,17 @@ script:
     then: []
 
 interval:
+  - interval: 5s
+    then:
+      - if:
+          condition: { lambda: 'return id(setup_mode);' }
+          then:
+            - lambda: |-
+                std::string st = id(room_label).state.empty()
+                    ? "set the room label (Device section), then press Finish setup"
+                    : "ready - press Finish setup";
+                if (id(setup_status).state != st)
+                  id(setup_status).publish_state(st);
   - interval: 1s
     then:
       - lambda: |-

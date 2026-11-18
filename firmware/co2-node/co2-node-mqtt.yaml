@@ -1,7 +1,7 @@
-# Gift/product web-MQTT configuration. The shared setup package
-# (co2-node-setup.yaml) owns the WiFi AP, captive portal, QR code, and the
-# finish/reset setup buttons; this file only holds the MQTT broker inputs and
-# the factory-reset hook that clears them.
+# Runtime MQTT configuration: web-UI broker/port/username/password inputs,
+# applied at boot and via "Save MQTT settings". Broker empty = MQTT disabled
+# (local-only unit). The shared setup package (co2-node-setup.yaml) owns the
+# WiFi AP, captive portal, QR code, and the finish/reset setup buttons.
 
 esphome:
   on_boot:

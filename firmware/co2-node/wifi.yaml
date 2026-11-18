@@ -1,0 +1,13 @@
+# Generic WiFi/MQTT build - identical image for every unit. Room label and
+# MQTT broker/credentials are provisioned at runtime via the setup AP / web
+# UI (co2-node-setup.yaml + co2-node-mqtt.yaml). HA identity derives from the
+# MAC-suffixed node name; friendly names are renamed in HA if desired.
+esphome:
+  name: co2-sensor
+  name_add_mac_suffix: true
+  comment: "WiFi"
+
+packages:
+  core: !include co2-node-core.yaml
+  mqtt: !include co2-node-mqtt.yaml
+  webui: !include co2-node-webui.yaml

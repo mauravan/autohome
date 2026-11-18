@@ -8,34 +8,33 @@ broker via ESPHome MQTT discovery, then deep-sleeps. Battery is sampled 3× per 
 quietest load point (radio idle, SCD41 powered down, before the e-paper render) and averaged
 via `sliding_window_moving_average` (window 3), matching the SCD41 channels.
 
-Three variants share one package: `top.yaml`, `mid.yaml`, `bottom.yaml` differ only in
-`device_name` / `friendly_name` / `floor_label`. Sensor `name`s live in
-`co2-node-core.yaml` and carry the floor prefix directly
-(`name: "${friendly_name} CO2"` → `"Top Floor CO2"`), which HA slugifies to the entity
-ids the dashboard already references (`sensor.top_floor_co2`, `_temperature`,
-`_humidity`, and the `mid_floor_*` / `bottom_floor_*` triplets).
+Two generic builds cover every unit: `wifi.yaml` and `ble.yaml` are identical images
+flashed to all units. Identity is configured at runtime through the setup AP / web UI:
 
-> **Why the floor token is in the sensor `name`**: ESPHome ≥2024 MQTT discovery sets the
-> discovery `name` to the sensor's own `name` (not `friendly_name + name`), so a bare
-> `name: "CO2"` with `friendly_name: "Top Floor"` would surface as `sensor.co2` — and all
-> three floors would collide on the same `unique_id`. The `${friendly_name}` prefix keeps
-> each floor distinct.
+- **Room label** (`room_label`): the e-paper header and (for BLE) the advertisement name.
+- **MQTT broker/credentials** (`wifi.yaml` / `test.yaml` only): configured in the web UI;
+  an empty broker disables MQTT and the unit runs local-only.
+- **HA identity**: the node name is `co2-sensor-<mac>` (`name_add_mac_suffix: true`).
+  MQTT discovery uses the MAC for `unique_id` and the node name for `object_id`, so
+  entity ids look like `co2_sensor_<mac>_co2` and never collide between units. Friendly
+  names (`CO2`, `Temperature`, `Humidity`, `Battery`) can be renamed per-entity in HA.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `co2-node-core.yaml` | Shared aggregator: base + WiFi/MQTT/SNTP transport + setup flow |
+| `wifi.yaml` | Generic WiFi/MQTT build — flash this to every WiFi unit |
+| `ble.yaml` | Generic BLE/BTHome build — flash this to every BLE unit |
+| `test.yaml` | Dev build: DEBUG logs + checkerboard e-paper test page (same flow as `wifi.yaml`) |
+| `co2-node-core.yaml` | Aggregator for WiFi builds: base + WiFi/MQTT/SNTP transport + setup flow |
 | `co2-node-base.yaml` | Shared hardware package: ESP32, SCD41, e-paper, deep sleep, OTA, safe_mode |
-| `co2-node-wifi.yaml` | WiFi/MQTT/SNTP transport (the WiFi component itself lives in `co2-node-setup.yaml`) |
-| `co2-node-ble.yaml` | BLE/BTHome transport; WiFi stays off except during setup/cold-boot config window |
+| `co2-node-wifi.yaml` | WiFi/MQTT/SNTP transport with MAC-derived discovery identifiers |
+| `co2-node-ble.yaml` | BLE/BTHome transport; advertisement name copied from the runtime room label |
 | `co2-node-setup.yaml` | Shared QR/AP/captive-portal setup flow, finish/reset buttons, `provisioned` flag |
+| `co2-node-mqtt.yaml` | Runtime MQTT broker/port/username/password inputs |
 | `co2-node-webui.yaml` | Web server + sorting groups |
-| `co2-node-secure.yaml` | Product-only: NVS encryption, signed OTA, downgrade protection |
-| `co2-node-home.yaml` | Home package: default MQTT broker + SNTP servers (station WiFi is provisioned, not compiled in) |
-| `gift.yaml` | Gift build: generic MAC-suffixed identity, unprovisioned defaults, no station creds |
-| `top.yaml` / `mid.yaml` / `bottom.yaml` | Per-floor identity + `!include` of core + home packages |
-| `secrets.yaml.example` | Template for git-ignored `secrets.yaml` (only MQTT/OTA secrets are used now) |
+| `co2-node-secure.yaml` | Product-only security package (currently unused) |
+| `secrets.yaml.example` | Template for git-ignored `secrets.yaml` (OTA password; MQTT is runtime) |
 | `README.md` | This file |
 
 ## Pinout schema (ESP32-C3 SuperMini / `esp32-c3-devkitm-1`)
@@ -87,10 +86,10 @@ CH340 port.
 
 ```bash
 cd firmware/co2-node
-cp secrets.yaml.example secrets.yaml   # fill in WiFi + MQTT credentials
+cp secrets.yaml.example secrets.yaml   # fill in OTA password (MQTT is configured in the web UI)
 ls /dev/ttyACM* /dev/ttyUSB*           # find the board's port
-esphome config top.yaml                # expect "Configuration is valid"
-esphome run top.yaml --device /dev/ttyACM0
+esphome config wifi.yaml               # expect "Configuration is valid"
+esphome run wifi.yaml --device /dev/ttyACM0
 ```
 
 `secrets.yaml` is git-ignored and never committed. Flash over USB serial. No native
@@ -168,17 +167,17 @@ Estimates, not measured. Per 5-min wake after the optimizations above:
 
 ## Gifting a sensor
 
-Build/flash `gift.yaml` over USB; for a clean identity run
+Build/flash `wifi.yaml` (or `ble.yaml`) over USB; for a clean identity run
 `python -m esptool --chip esp32c3 -p /dev/ttyACM0 erase_flash` first. To gift an
 existing node instead: press `Reset to setup` in its web UI before unplugging (clears
 MQTT creds/offsets and sets `provisioned=false`).
 
 Recipient flow: the first boot shows a QR code; scan it to join the setup AP
-(`co2-setup`, or `co2-setup-top` / `co2-setup-mid` / `co2-setup-bottom` for the
-home floors), open `192.168.4.1`, pick the home WiFi (2.4 GHz/WPA2). The screen
+(`co2-setup`), open `192.168.4.1`, pick the home WiFi (2.4 GHz/WPA2). The screen
 flips to a centered cog with the station IP below; reconnect the phone to the home
-WiFi, open that IP, set offsets/room label. MQTT is optional (press 'Save MQTT
-settings' to apply it without restarting), then press `Finish setup`.
+WiFi, open that IP, set the room label, offsets, and (for WiFi) MQTT broker. MQTT is
+optional (press 'Save MQTT settings' to apply it without restarting), then press
+`Finish setup`. The room label is required; `Finish setup` is blocked until it is set.
 
 MQTT: leave broker empty for local-only; `homeassistant.local` works when Mosquitto runs
 on the HA host, otherwise enter the broker IP; create broker credentials in HA. Entities
@@ -214,17 +213,11 @@ SSD1681/SSD1683 expose no ID register.
 - E-paper is WeAct 1.54" (200×200) or WeAct 4.2" (400×300) B/W, selected in the web UI (Device → '4.2 inch panel'). If the panel never initializes, check the rail, wiring, and BUSY line.
 - `gfonts://Roboto` needs network at first compile. Offline: drop a local `.ttf` into
   `firmware/co2-node/fonts/` and point `font.file` at it.
-- Entity naming hinges on the `${friendly_name}` prefix in each sensor `name`. If HA
-  surfaces `sensor.co2` (or floors collide), the substitution is not reaching the package
-  — check the `!include` and that `friendly_name` is set per floor.
+- Entity naming is distinct per unit because MQTT discovery uses the MAC address for
+  `unique_id` and the node name for `object_id`. If the e-paper header is blank, the
+  room label was not set before pressing `Finish setup` — reset to setup and set it.
 - Existing Pi publisher topics/`unique_id`s are not in this repo. Capture them at
   cutover (see plan Step 4); if the old publisher cannot be located, stopping the Pis
   and deleting the stale HA entities achieves the same clean names.
 
-## Production flags (no cadence change)
 
-- `production/build_unit.py --render-only --out-dir <dir>` renders
-  `product-<last4>.yaml` without flashing and exits 0 without touching
-  `units.csv` (`--port` optional in this mode).
-- `production/test_unit.py --dry-run --log <file>` exercises the assertion
-  logic (thresholds unchanged) without hardware.

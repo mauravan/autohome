@@ -30,8 +30,8 @@ Boot/on_boot scripts -> measure SCD41 -> filter offsets -> publish -> render e-p
 
 | Family | Root files | Packages |
 |---|---|---|
-| WiFi + MQTT | `top.yaml`, `mid.yaml`, `bottom.yaml`, `test.yaml`, `gift.yaml`, `product.yaml` | `co2-node-core.yaml` = base + wifi + setup |
-| BLE BTHome | `top-ble.yaml`, `mid-ble.yaml`, `bottom-ble.yaml`, `gift-ble.yaml`, `product-ble.yaml` | base + ble + setup |
+|WiFi + MQTT|`wifi.yaml`, `test.yaml`|`co2-node-core.yaml` = base + wifi + setup + webui; `co2-node-mqtt.yaml` = runtime broker inputs|
+|BLE BTHome|`ble.yaml`|base + ble + setup + webui|
 
 Both share `co2-node-setup.yaml` for the captive-portal provisioning flow.
 
@@ -73,25 +73,30 @@ Run from `firmware/co2-node/`:
 
 ```bash
 # Validate a config
-esphome config top.yaml
+esphome config wifi.yaml
 
 # Compile and flash over USB (native-USB CDC, usually /dev/ttyACM0)
-esphome run top.yaml --device /dev/ttyACM0
+esphome run wifi.yaml --device /dev/ttyACM0
 
 # Compile only
-esphome compile top.yaml
+esphome compile wifi.yaml
 
 # OTA upload
-esphome upload top.yaml --device <host-or-ip>
+esphome upload wifi.yaml --device <host-or-ip>
 
 # Clean build artifacts for one target
-esphome clean top.yaml
+esphome clean wifi.yaml
 
 # Verbose logs for debugging (costs wake time / battery)
-esphome run top.yaml -s log_level DEBUG
+esphome run wifi.yaml -s log_level DEBUG
 
 # BLE build with light sleep disabled for bench debug
-esphome run top-ble.yaml --device /dev/ttyACM0 -s light_sleep_enabled false
+esphome run ble.yaml --device /dev/ttyACM0 -s light_sleep_enabled false
+
+# Validate the generic builds
+esphome config wifi.yaml
+esphome config ble.yaml
+esphome config test.yaml
 
 # Regenerate the patched web UI header after editing webui/boot.js or fonts/logo_green.png
 python3 tools/regen_webui_header.py
@@ -107,26 +112,30 @@ pip install esphome
 sudo apt install mosquitto-clients   # for MQTT verification
 
 cd firmware/co2-node
-cp secrets.yaml.example secrets.yaml   # fill in mqtt_* and ota_password
-# product builds also need ota_signing_key (path to PEM)
+cp secrets.yaml.example secrets.yaml   # fill in ota_password; MQTT is configured in the web UI
 ```
 
-Flash a gift unit cleanly:
+Flash a unit cleanly:
 
 ```bash
 python -m esptool --chip esp32c3 -p /dev/ttyACM0 erase_flash
-esphome run gift.yaml --device /dev/ttyACM0
+esphome run wifi.yaml --device /dev/ttyACM0
+# or, for BLE:
+# esphome run ble.yaml --device /dev/ttyACM0
 ```
 
 ## Code Conventions & Common Patterns
 
 ### YAML
 
-- **Package composition**: device files (`top.yaml`, etc.) are thin identity files (`substitutions:` + `esphome:` + `packages:`). Behaviour lives in `co2-node-*.yaml`.
+- **Package composition**: build files (`wifi.yaml`, `ble.yaml`, `test.yaml`) are thin identity files (`esphome:` + `packages:`). Behaviour lives in `co2-node-*.yaml`.
 - **Include / extend**: `!include` for packages; `!extend <id>` to append to shared entities.
-- **Substitutions**: identity vars (`device_name`, `friendly_name`, `floor_label`, `ap_ssid`, `ble_name`) live in the per-device file and override package defaults.
-- **Sensor naming**: names embed `${friendly_name}` (e.g., `"${friendly_name} CO2"`). This is required because ESPHome ≥2024 MQTT discovery uses the sensor's own `name`, not `friendly_name + name`; omitting the prefix makes floors collide on `sensor.co2`.
-- **Secrets**: `!secret ota_password` in every build; `!secret mqtt_username`/`mqtt_password` in home builds; `!secret ota_signing_key` in product builds.
+- **Substitutions**: only debug/transport toggles (e.g., `light_sleep_enabled`, `log_level`) remain; per-unit identity vars moved to runtime inputs in `co2-node-setup.yaml` / `co2-node-mqtt.yaml`.
+- **Sensor naming**: bare sensor names (`"CO2"`, `"Temperature"`, `"Humidity"`, `"Battery"`).
+  Uniqueness in Home Assistant comes from `name_add_mac_suffix: true`,
+  `discovery_unique_id_generator: mac`, and `discovery_object_id_generator: device_name`.
+  Per-unit identity is the runtime `room_label` text input (e-paper header / BLE adv name).
+- **Secrets**: `!secret ota_password` in every build; `!secret ota_signing_key` for the unused `co2-node-secure.yaml` package. MQTT credentials are runtime web-UI inputs, not compile-time secrets.
 
 ### C++ custom components
 
@@ -161,19 +170,16 @@ esphome run gift.yaml --device /dev/ttyACM0
 
 | File | What it does |
 |---|---|
-| `top.yaml` / `mid.yaml` / `bottom.yaml` | Home floor WiFi+MQTT device identities. |
-| `top-ble.yaml` / `mid-ble.yaml` / `bottom-ble.yaml` | Floor BLE/BTHome device identities. |
-| `gift.yaml` / `gift-ble.yaml` | Generic MAC-suffixed builds for gifting. |
-| `product.yaml` / `product-ble.yaml` | Per-unit secure builds. Marked as rendered by `production/build_unit.py` (currently missing from tree). |
-| `test.yaml` | Dev build: DEBUG logs, checkerboard page, MAC suffix. |
-| `co2-node-core.yaml` | WiFi+MQTT aggregator: `base + wifi + setup`. |
+|`wifi.yaml`|Generic WiFi/MQTT build — identical image for every unit.|
+|`ble.yaml`|Generic BLE/BTHome build — identical image for every unit.|
+|`test.yaml`|Dev build: DEBUG logs, checkerboard page, MAC suffix; same flow as `wifi.yaml`.|
+|`co2-node-core.yaml`|WiFi+MQTT aggregator: `base + wifi + setup`. Included by `wifi.yaml` and `test.yaml`.|
 | `co2-node-base.yaml` | Hardware package: ESP32, I²C, SPI, SCD41, e-paper, battery, deep sleep, OTA, globals, render script. |
 | `co2-node-wifi.yaml` | WiFi/MQTT/SNTP transport, `sntp_poll.h` include, `transport_ready` gate. |
 | `co2-node-ble.yaml` | BLE/BTHome transport, local `external_components` listing, light-sleep flag. |
 | `co2-node-setup.yaml` | Captive portal AP, QR code, provisioning globals, finish/reset buttons. |
-| `co2-node-home.yaml` | Home MQTT broker + SNTP defaults (compile-time creds). |
-| `co2-node-gift.yaml` | Runtime MQTT config inputs and factory-reset hook. |
-| `co2-node-secure.yaml` | Product-only: NVS encryption, signed OTA, downgrade protection. **Burns eFuse key block 5 on first boot.** |
+| `co2-node-mqtt.yaml` | Runtime MQTT broker/port/username/password inputs and factory-reset hook. |
+| `co2-node-secure.yaml` | Product-only security package (currently unused). **Burns eFuse key block 5 on first boot.** |
 | `co2-node-webui.yaml` | `web_server` v3 + sorting groups. Keep `compression: gzip` (default) or the patched UI is bypassed. |
 | `secrets.yaml.example` | Template for git-ignored `secrets.yaml`. |
 | `sntp_poll.h` | Inline SNTP helper; avoids including `<esp_sntp.h>`. |
@@ -192,7 +198,7 @@ esphome run gift.yaml --device /dev/ttyACM0
 - **Tool constraints**:
   - `tools/regen_webui_header.py` uses stdlib only.
   - `webui/stock_v3.html.gz` upgrades can silently break the byte-exact JS patches; verify `--emit-html` after any stock bundle change.
-  - BLE `ble_name` must be ≤ 10 characters or the BTHome payload exceeds 31 bytes.
+  - The BLE advertisement name is copied from the runtime `room_label` (≤16 chars); the BTHome encoder trims it to fit the 31-byte payload (≈9 chars visible). Longer names can be renamed in HA.
 
 ## Testing & QA
 
@@ -202,6 +208,6 @@ esphome run gift.yaml --device /dev/ttyACM0
   - Flash and watch serial: boot → setup QR/AP → `WiFi connected` → SCD41 single-shot → `MQTT connected` → render → deep sleep.
   - Verify MQTT: `mosquitto_sub -h homeassistant.local -u mqtt_user -P '...' -t '#' -v`.
   - Brownout triage: scope 3V3 rail at reset; check logs for `wakeup_cause`, `Data not ready`, `Timeout while displaying image!`.
-  - Entity naming: if HA shows `sensor.co2` or floors collide, check that `friendly_name` substitution reaches the sensor `name`.
+  - Entity naming: entities are unique per unit via MAC-based `discovery_unique_id_generator: mac` and node-name `discovery_object_id_generator: device_name`. If the e-paper header is blank, the room label was not set before `Finish setup`.
 - **Coverage**: none; power budget figures in README are estimates, not measured.
-- **Production tooling**: `README.md` references `production/build_unit.py` and `production/test_unit.py`, and `product.yaml` says it is rendered by `production/build_unit.py`. These files are **not present** in the current tree; do not document them as runnable until restored or docs are updated.
+- **Production tooling**: `README.md` previously referenced `production/build_unit.py` and `production/test_unit.py`; the corresponding `product.yaml`/`product-ble.yaml` build files have been removed. Do not document them as runnable until restored or docs are updated.

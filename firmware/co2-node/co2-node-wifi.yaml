@@ -1,9 +1,13 @@
-# WiFi + MQTT + SNTP transport. Included by co2-node-core.yaml so existing
-# builds keep their MQTT/SNTP runtime. The WiFi component itself lives in
-# co2-node-setup.yaml (included by every build).
+# WiFi + MQTT + SNTP transport. Included by co2-node-core.yaml. The WiFi
+# component itself lives in co2-node-setup.yaml. Discovery identifiers derive
+# from the MAC-suffixed node name so every unit is unique without per-build
+# identity inputs.
 
 substitutions:
-  discovery_uid_generator: "legacy"
+  mqtt_broker_compile: "homeassistant.local"   # placeholder; runtime config overrides before enable
+
+# Note: discovery identifiers use the MAC address and node name. This makes
+# every generic build distinct in Home Assistant with no per-unit firmware.
 
 esphome:
   includes: [sntp_poll.h]
@@ -35,7 +39,8 @@ mqtt:
   enable_on_boot: false
   reboot_timeout: 0s
   discovery: true       # discovery_prefix defaults to "homeassistant" (matches HA)
-  discovery_unique_id_generator: ${discovery_uid_generator}
+  discovery_unique_id_generator: "mac"
+  discovery_object_id_generator: "device_name"
   birth_message:        # empty = disabled; deep-sleep must not read as unavailable
   will_message:         # empty = disabled; no LWT offline while sleeping
   shutdown_message:     # empty = disabled; clean disconnect must not clear availability
@@ -47,10 +52,10 @@ interval:
   - interval: 1s
     then:
       - lambda: |-
-          if (id(setup_mode)) return;      // gift setup window: gift's own interval owns allow_sleep
+          if (id(setup_mode)) return;      // setup window: setup's own interval owns allow_sleep
           // Sleep only when the wake actually delivered what it can deliver:
           //  - WiFi associated (nothing can be published without it)
-          //  - MQTT connected, unless no broker is configured (gift / local-only)
+          //  - MQTT connected, unless no broker is configured (local-only)
           //  - wall clock known, only when the panel renders the footer timestamp
           // Every wait is bounded so a dead broker/NTP/AP cannot pin the node awake.
           bool wifi_ok = id(wifi_component).is_connected();

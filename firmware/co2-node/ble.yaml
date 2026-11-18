@@ -1,0 +1,13 @@
+# Generic BLE/BTHome build - identical image for every unit. The room label
+# (provisioned at runtime) is both the e-paper header and the BLE
+# advertisement name. WiFi exists only for the setup/cold-boot config window.
+esphome:
+  name: co2-sensor
+  name_add_mac_suffix: true
+  comment: "BLE"
+
+packages:
+  base: !include co2-node-base.yaml
+  ble: !include co2-node-ble.yaml
+  setup: !include co2-node-setup.yaml
+  webui: !include co2-node-webui.yaml
